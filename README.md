@@ -10,23 +10,28 @@ Data mining project built on **EdNet-KT4** — the largest public educational in
 ## Repository Structure
 
 ```
-scripts/                          # Reproducible Python pipeline
+eda/                              # Exploratory Data Analysis
 ├── 01_convert_to_parquet.py      # 297K CSVs → single parquet (6.4GB → 1.3GB)
 ├── 02_eda_overview.py            # Structural overview & missing values
 ├── 03_eda_distributions.py       # Column distributions & cross-tabs
 ├── 04_eda_metadata.py            # Question difficulty, tags, lectures
-├── 05_eda_temporal.py            # Temporal & user growth patterns
-└── 06_preprocess.py              # Cleaning, integration, transformation
+└── 05_eda_temporal.py            # Temporal & user growth patterns
+preprocessing/                    # Data Cleaning, Integration, Transformation
+└── preprocess.py
 output/
-├── plots/                        # 28 visualizations
-└── reports/                      # Detailed Markdown reports (reference all plots)
+├── eda/                          # EDA plots (26) & reports
+│   ├── plots/
+│   └── reports/
+└── preprocessing/                # Preprocessing plots (2) & report
+    ├── plots/
+    └── reports/
 ```
 
 Raw data (`KT4/`, `contents/`, `processed/`) is excluded from git due to size.
 
 ## Key Findings
 
-Full reports with plots: [`output/reports/`](output/reports/)
+Full reports with plots: [`output/eda/reports/`](output/eda/reports/) and [`output/preprocessing/reports/`](output/preprocessing/reports/)
 
 - **Extremely skewed user activity**: median 31 interactions vs. mean 441
 - **Sprint mode dominates** (71%) — students prefer self-directed practice over system recommendations
@@ -43,12 +48,12 @@ Full reports with plots: [`output/reports/`](output/reports/)
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
    pip install pandas pyarrow matplotlib seaborn numpy tqdm
-   python scripts/01_convert_to_parquet.py    # ~5 min
-   python scripts/02_eda_overview.py
-   python scripts/03_eda_distributions.py
-   python scripts/04_eda_metadata.py
-   python scripts/05_eda_temporal.py
-   python scripts/06_preprocess.py
+   python eda/01_convert_to_parquet.py    # ~5 min
+   python eda/02_eda_overview.py
+   python eda/03_eda_distributions.py
+   python eda/04_eda_metadata.py
+   python eda/05_eda_temporal.py
+   python preprocessing/preprocess.py
    ```
 
 ## Acknowledgments

@@ -22,8 +22,8 @@ import numpy as np
 # ── Paths ──────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARQUET_FILE = os.path.join(BASE_DIR, "processed", "kt4_interactions.parquet")
-PLOTS_DIR = os.path.join(BASE_DIR, "output", "plots")
-REPORTS_DIR = os.path.join(BASE_DIR, "output", "reports")
+PLOTS_DIR = os.path.join(BASE_DIR, "output", "eda", "plots")
+REPORTS_DIR = os.path.join(BASE_DIR, "output", "eda", "reports")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
