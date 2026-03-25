@@ -118,18 +118,26 @@ Difficulty is computed as `1 - accuracy_rate` where accuracy is derived by match
 
 ### Difficulty by Part
 
-| Part | Avg Difficulty | Interpretation |
-|---|---|---|
-| Hardest parts | Parts with higher values | More frequently answered incorrectly |
-| Easiest parts | Parts with lower values | More frequently answered correctly |
+| Part | Name | Avg Difficulty | Accuracy | Responses |
+|---|---|---|---|---|
+| 5 | Incomplete Sentences | **0.487** | 51.3% | 12,231,178 |
+| 6 | Text Completion | 0.404 | 59.6% | 1,784,682 |
+| 7 | Reading Comprehension | 0.393 | 60.7% | 861,942 |
+| 4 | Short Talks | 0.377 | 62.3% | 1,173,289 |
+| 2 | Question-Response | 0.369 | 63.1% | 4,037,705 |
+| 3 | Short Conversations | 0.364 | 63.7% | 1,489,468 |
+| 1 | Photo Descriptions | **0.326** | 67.4% | 1,730,438 |
 
-The bar chart in the figure above shows the difficulty breakdown. Compare this against student study patterns to identify where students need the most help vs. where they spend the most time.
+**Insights**:
+- **Part 5 (grammar) is the hardest** with only 51.3% accuracy — and it also has by far the most responses (12.2M), so students spend the most time on the part they struggle with most.
+- **Part 1 (photos) is the easiest** at 67.4% accuracy.
+- Listening parts (1-4) are generally easier than reading parts (5-7), which may reflect that the listening questions in Santa's bank are more straightforward, or that students who use a TOEIC prep app already have stronger listening skills.
 
 ### Difficulty vs. Number of Attempts
 
 ![Difficulty vs Attempts](../plots/03_difficulty_vs_attempts.png)
 
-**Insight**: There is a slight negative relationship — questions with more attempts tend to have lower difficulty. This likely reflects that popular (frequently served) questions tend to be from well-practiced skill areas, not that practice makes those specific questions easier.
+**Insight**: There is a slight negative relationship — harder questions tend to have fewer attempts. Students are less likely to encounter or revisit difficult questions, while easier questions accumulate more attempts through repeated practice.
 
 ## 6. Lectures Metadata
 
@@ -139,8 +147,8 @@ The bar chart in the figure above shows the difficulty breakdown. Compare this a
 
 | Part | Lectures |
 |---|---|
-| -1 (unassigned) | **437** |
-| 0 (general) | 35 |
+| -1 (unavailable) | **437** |
+| 0 (general/no specific part) | 35 |
 | 1 | 60 |
 | 2 | 90 |
 | 3 | 30 |
@@ -149,7 +157,7 @@ The bar chart in the figure above shows the difficulty breakdown. Compare this a
 | 6 | 98 |
 | 7 | 43 |
 
-**Insight**: 437 lectures (43%) have `part = -1` (unassigned), meaning almost half the lecture content lacks part categorization. Part 5 has the most assigned lectures (187), matching its dominance in the question bank.
+**Insight**: 472 lectures (46%) have no specific part assignment — 437 with `part = -1` (data unavailable) and 35 with `part = 0` (intentionally general content like study tips). Among the remaining 549 lectures with a part, Part 5 has the most (187), matching its dominance in the question bank.
 
 ### Video Length Distribution
 

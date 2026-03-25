@@ -177,24 +177,26 @@ def main():
         log(f"  cursor_time IQR: [{q1:,.0f}, {q3:,.0f}], IQR={iqr:,.0f}")
         log(f"  Outlier bounds: [{lower:,.0f}, {upper:,.0f}]")
         log(f"  Outliers (IQR method): {outliers:,} ({outliers/len(cursor_valid)*100:.2f}%)")
-        log(f"  → Flagging outliers (not removing — lossless)")
+        log(f"  → Removing outlier cursor_time values (setting to NaN)")
 
-        # Add outlier flag column
-        df["cursor_time_outlier"] = False
-        df.loc[media_mask & df["cursor_time"].notna() &
-               ((df["cursor_time"] < lower) | (df["cursor_time"] > upper)),
-               "cursor_time_outlier"] = True
-
+        # Plot before removal
         fig, axes = plt.subplots(1, 2, figsize=(14, 5))
         axes[0].boxplot(cursor_valid.values, vert=True)
-        axes[0].set_title("cursor_time Boxplot (all)")
+        axes[0].set_title("cursor_time Boxplot (before removal)")
         axes[0].set_ylabel("milliseconds")
-        # Zoomed version
+        # Clean distribution
         cursor_no_outlier = cursor_valid[(cursor_valid >= lower) & (cursor_valid <= upper)]
         axes[1].hist(cursor_no_outlier / 1000, bins=50, color=PALETTE[0], edgecolor="white")
-        axes[1].set_title("cursor_time Distribution (without outliers)")
+        axes[1].set_title("cursor_time Distribution (after removal)")
         axes[1].set_xlabel("seconds")
         save_fig("05_cursor_time_outliers.png")
+
+        # Remove outlier values
+        outlier_mask = (media_mask & df["cursor_time"].notna() &
+                        ((df["cursor_time"] < lower) | (df["cursor_time"] > upper)))
+        df.loc[outlier_mask, "cursor_time"] = np.nan
+        log(f"  → {outlier_mask.sum():,} cursor_time values set to NaN")
+        log(f"  → Clean cursor_time range: [{df['cursor_time'].min():,.0f}, {df['cursor_time'].max():,.0f}] ms")
 
     # ==================================================================
     # STEP 2: DATA INTEGRATION (Slide 14-24)
@@ -298,6 +300,7 @@ def main():
 
     # ── 3b. Normalization of cursor_time (min-max) ─────────────────────
     log("\n--- 3b. Normalization ---")
+    # cursor_time outliers were already removed in Step 1d
     cursor_notna = df["cursor_time"].notna()
     if cursor_notna.sum() > 0:
         ct_min = df.loc[cursor_notna, "cursor_time"].min()
@@ -307,8 +310,8 @@ def main():
             df.loc[cursor_notna, "cursor_time_normalized"] = (
                 (df.loc[cursor_notna, "cursor_time"] - ct_min) / (ct_max - ct_min)
             )
-            log(f"  cursor_time min-max normalized to [0, 1]")
-            log(f"    Original range: [{ct_min:,.0f}, {ct_max:,.0f}] ms")
+            log(f"  cursor_time min-max normalized to [0, 1] (outliers removed in Step 1d)")
+            log(f"    Clean range: [{ct_min:,.0f}, {ct_max:,.0f}] ms")
         else:
             log(f"  cursor_time has constant value, skipping normalization")
 

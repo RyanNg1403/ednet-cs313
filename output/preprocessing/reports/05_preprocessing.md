@@ -3,9 +3,9 @@
 This report documents all preprocessing steps applied to the EdNet-KT4 dataset, aligned with the CS313 Data Mining course curriculum (Data Cleaning, Data Integration, Data Transformation, Data Reduction).
 
 **Input**: `processed/kt4_interactions.parquet` (131,441,538 rows x 8 columns)
-**Output**: `processed/kt4_preprocessed.parquet` (130,980,301 rows x 31 columns)
+**Output**: `processed/kt4_preprocessed.parquet` (130,980,301 rows x 30 columns)
 
-All transformations are **lossless** — original columns are preserved, derived columns are added alongside them.
+Original columns are preserved alongside derived columns. Outlier cursor_time values are removed (set to NaN) prior to normalization.
 
 ---
 
@@ -51,13 +51,12 @@ These duplicates likely arose from client-side retry logic (network issues causi
 | Statistic | Value |
 |---|---|
 | Q1 | 0 ms |
-| Q3 | 18,469 ms |
-| IQR | 18,469 ms |
-| Lower bound | -27,704 ms (effective: 0) |
-| Upper bound | 46,172 ms (~46s) |
-| Outliers (IQR method) | **978,963** (9.21% of media actions) |
+| Q3 | 17,650 ms |
+| IQR | 17,650 ms |
+| Upper bound | 44,125 ms (~44s) |
+| Outliers removed | **2,682,355** values set to NaN |
 
-**Decision**: Outliers are **flagged** with a `cursor_time_outlier` boolean column, not removed. This preserves all data while enabling downstream analyses to filter them if needed. The maximum cursor_time of 11.6M ms (~3.2 hours) is extreme and likely represents sessions left running accidentally.
+**Decision**: Outlier cursor_time values above the IQR upper bound (44s) were **removed** (set to NaN). These extreme values (up to 11.6M ms / ~3.2 hours) likely represent sessions left running accidentally and would distort downstream normalization. The rows themselves are preserved — only the unreliable cursor_time values are cleared. This ensures the subsequent min-max normalization produces a meaningful [0, 1] range over the clean data (0–44s).
 
 ---
 
@@ -153,7 +152,7 @@ Merged `lectures.csv` into interaction rows where `item_type == "lecture"`:
 
 | Column | Method | Details |
 |---|---|---|
-| `cursor_time_normalized` | **Min-max normalization** | Scaled `cursor_time` to [0, 1] range. Original range: [0, 11,633,133] ms. Only computed for non-null cursor_time values. |
+| `cursor_time_normalized` | **Min-max normalization** | Scaled `cursor_time` to [0, 1] range. Clean range: [0, 44,125] ms (after outlier removal in Step 1d). Median normalized value: 0.15. |
 | `log_time_since_prev` | **Log transform** (log1p) | Applied `log(1 + time_since_prev)` to handle the extreme right skew. This makes the distribution more amenable to downstream models. |
 
 ### 3c. Discretization (Slide 28)
@@ -209,8 +208,7 @@ The full preprocessed dataset is saved without reduction, to preserve flexibilit
 | 6 | `user_answer` | category | Original |
 | 7 | `platform` | category | Original |
 | 8 | `user_id` | int32 | Original |
-| 9 | `cursor_time_outlier` | bool | Step 1d: Outlier flag |
-| 10 | `item_type` | string | Step 2a: Extracted from item_id |
+| 9 | `item_type` | string | Step 2a: Extracted from item_id |
 | 11 | `bundle_id` | string | Step 2b: From questions.csv |
 | 12 | `correct_answer` | string | Step 2b: From questions.csv |
 | 13 | `part` | float64 | Step 2b: TOEIC part (1-7) |

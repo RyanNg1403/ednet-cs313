@@ -67,11 +67,21 @@ def main():
     axes[0].set_xlabel("Count")
     axes[0].set_title("Action Type — Count")
     axes[0].xaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"{x/1e6:.1f}M"))
-    # Pie chart
-    action_vc.plot.pie(ax=axes[1], autopct="%1.1f%%", colors=PALETTE[:len(action_vc)],
-                       startangle=90)
-    axes[1].set_ylabel("")
+    # Bar chart with percentages (cleaner than pie for 13 categories)
+    pcts = (action_vc / action_vc.sum() * 100)
+    bars = axes[1].barh(range(len(pcts)), pcts.values, color=PALETTE[:len(pcts)])
+    axes[1].set_yticks(range(len(pcts)))
+    axes[1].set_yticklabels(pcts.index)
+    axes[1].set_xlabel("Percentage (%)")
     axes[1].set_title("Action Type — Proportion")
+    axes[1].invert_yaxis()
+    for bar, pct in zip(bars, pcts.values):
+        if pct >= 1:
+            axes[1].text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
+                         f"{pct:.1f}%", va="center", fontsize=9)
+        else:
+            axes[1].text(bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
+                         f"{pct:.2f}%", va="center", fontsize=9)
     save_fig("02_action_type_distribution.png")
 
     # ── 2. Source Distribution ─────────────────────────────────────────
