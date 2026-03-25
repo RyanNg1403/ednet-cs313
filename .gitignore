@@ -1,0 +1,15 @@
+# Raw data (too large for git)
+KT4/
+contents/
+processed/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Course materials
+*.pdf
