@@ -2,6 +2,8 @@
 
 This report documents all preprocessing steps applied to the EdNet-KT4 dataset, aligned with the CS313 Data Mining course curriculum (Data Cleaning, Data Integration, Data Transformation, Data Reduction).
 
+The slide numbers referenced throughout this report (e.g., "Slides 10-13") refer to the course slides in [`Data Pre-processing.pdf`](../../Data%20Pre-processing.pdf) at the project root.
+
 **Input**: `processed/kt4_interactions.parquet` (131,441,538 rows x 8 columns)
 **Output**: `processed/kt4_preprocessed.parquet` (130,980,301 rows x 30 columns)
 
