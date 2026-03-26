@@ -58,6 +58,16 @@ Full reports with plots: [`output/eda/reports/`](output/eda/reports/) and [`outp
 
 ## Acknowledgments
 
+### Course Instructor
+
+<img src="assets/ThayDuyCute.png" alt="Vo Nguyen Le Duy" width="180" align="right" />
+
+This project was completed under the guidance of **Vo Nguyen Le Duy**, lecturer at the University of Information Technology (VNUHCM) and researcher at RIKEN, Japan. His CS313 course provided the theoretical foundation in data mining — from preprocessing techniques to pattern discovery — that shaped the methodology and analysis in this project. We are grateful for his instruction and the well-structured curriculum that made this work possible.
+
+Contact: [duyvnl@uit.edu.vn](mailto:duyvnl@uit.edu.vn)
+
+### Dataset
+
 This project uses the **EdNet** dataset by Riiid (now Socra AI):
 
 > Youngduck Choi, Youngnam Lee, Dongmin Shin, et al. *"EdNet: A Large-Scale Hierarchical Dataset in Education."* AIED, 2020. [[Paper]](https://arxiv.org/abs/1912.03072) [[Original Repo]](https://github.com/riiid/ednet)
