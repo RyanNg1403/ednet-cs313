@@ -5,8 +5,8 @@
 This module transforms the preprocessed EdNet-KT4 interaction logs into a feature table for answer correctness prediction. Each row represents a single student response, enriched with 10 engineered features capturing question properties, student mastery, behavioral signals, and engagement patterns.
 
 **Script**: `feature_engineering/generate_features.py`
-**Input**: `processed/kt4_preprocessed.parquet`
-**Output**: `processed/kt4_features.parquet` (23,308,702 rows x 15 columns, ~484 MB)
+**Input**: `processed/kt4_preprocessed.parquet` ([Google Drive](https://drive.google.com/file/d/1-y5GXRjb9xs1JMt8L0R_D6eOjzZpfvHI/view?usp=drive_link))
+**Output**: `processed/kt4_features.parquet` (23,308,702 rows x 15 columns, ~484 MB) ([Google Drive](https://drive.google.com/file/d/1CGxjrjg97-JZ602ll0tbRm3o2kAaD6H4/view?usp=drive_link))
 
 ## Leakage Prevention
 

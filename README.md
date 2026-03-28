@@ -7,6 +7,17 @@
 
 Data mining project built on **EdNet-KT4** — the largest public educational interaction dataset (131M interactions, 298K students), collected from [Santa](https://santatoeic.com/), a TOEIC preparation platform by Riiid.
 
+## Data
+
+Raw data and processed outputs are excluded from git due to size. Download from the links below.
+
+| File | Description | Source |
+|---|---|---|
+| EdNet-KT4 (raw) | 297K per-user CSV files, 6.4 GB | [Download](http://bit.ly/ednet-kt4) |
+| Contents (metadata) | Questions, lectures, payments, coupons | [Download](http://bit.ly/ednet-content) |
+| `kt4_preprocessed.parquet` | Cleaned & integrated dataset (131M rows, 30 cols) | [Google Drive](https://drive.google.com/file/d/1-y5GXRjb9xs1JMt8L0R_D6eOjzZpfvHI/view?usp=drive_link) |
+| `kt4_features.parquet` | Engineered features for correctness prediction (23.3M rows, 15 cols) | [Google Drive](https://drive.google.com/file/d/1CGxjrjg97-JZ602ll0tbRm3o2kAaD6H4/view?usp=drive_link) |
+
 ## Repository Structure
 
 ```text
@@ -18,29 +29,27 @@ eda/                              # Exploratory Data Analysis
 └── 05_eda_temporal.py            # Temporal & user growth patterns
 preprocessing/                    # Data Cleaning, Integration, Transformation
 └── preprocess.py
-feature_engineering/              # Feature Extraction & Data Leakage Prevention
-└── feature_creation/
-    ├── feature_creation.md       # Methodology, correlation & distribution analysis
-    └── plots/                    # Visualizations of engineered features
+feature_engineering/              # Feature Extraction for Correctness Prediction
+└── generate_features.py
 output/
 ├── eda/                          # EDA plots (26) & reports
 │   ├── plots/
 │   └── reports/
-└── preprocessing/                # Preprocessing plots (2) & report
+├── preprocessing/                # Preprocessing plots (2) & report
+│   ├── plots/
+│   └── reports/
+└── feature_engineering/          # Feature engineering plots (2) & report
     ├── plots/
     └── reports/
 ```
 
-Raw data (`KT4/`, `contents/`, `processed/`) and engineered features (`kt4_features.parquet`) are excluded from git due to size.
+## Key Findings
 
-## Key Findings & Engineered Features
-
-Full reports with plots: 
-- EDA: [`output/eda/reports/`](output/eda/reports/) 
+Full reports with plots:
+- EDA: [`output/eda/reports/`](output/eda/reports/)
 - Preprocessing: [`output/preprocessing/reports/`](output/preprocessing/reports/)
-- Feature Engineering: [`feature_engineering/feature_creation/feature_creation.md`](feature_engineering/feature_creation/feature_creation.md)
+- Feature Engineering: [`output/feature_engineering/reports/`](output/feature_engineering/reports/)
 
-**EDA Highlights:**
 - **Extremely skewed user activity**: median 31 interactions vs. mean 441
 - **Sprint mode dominates** (71%) — students prefer self-directed practice over system recommendations
 - **71% mobile, 29% web**; `undo_erase_choice` only exists on web
@@ -49,26 +58,21 @@ Full reports with plots:
 - **Bimodal activity peaks** in Jan 2019 and Jul-Aug 2019 (TOEIC exam seasons)
 - **461K exact duplicates** (0.35%) detected and removed; all missing values are structural
 
-**Feature Engineering Highlights:**
-- Extracted 4 groups of features: Historical Mastery, Local/Skill Mastery, Pedagogical Strategy, and Behavioral Dynamics.
-- Strictly prevented **Data Leakage** using out-of-core SQL Window Functions (`1 PRECEDING`).
-- Created `feat_session_fatigue` (1-hour rolling window) and `feat_is_rapid_guess` (<3.2s gap) to capture student cognitive load and guessing behavior.
-
 ## Setup
 
-1. Download [EdNet-KT4](http://bit.ly/ednet-kt4) and [Contents](http://bit.ly/ednet-content), extract into project root.
+1. Download [EdNet-KT4](http://bit.ly/ednet-kt4) and [Contents](http://bit.ly/ednet-content), extract into project root
 2. Run:
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
-   pip install pandas pyarrow matplotlib seaborn numpy tqdm duckdb polars
+   pip install pandas pyarrow matplotlib seaborn numpy tqdm
    python eda/01_convert_to_parquet.py    # ~5 min
    python eda/02_eda_overview.py
    python eda/03_eda_distributions.py
    python eda/04_eda_metadata.py
    python eda/05_eda_temporal.py
    python preprocessing/preprocess.py
+   python feature_engineering/generate_features.py
    ```
-*(Note: Feature engineering was executed out-of-core via DuckDB directly on the parquet files to optimize memory).*
 
 ## Acknowledgments
 
