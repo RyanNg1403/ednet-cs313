@@ -148,15 +148,15 @@ def main():
     log("BEHAVIORAL SIGNALS")
     log("=" * 50)
 
-    # feat_answer_changes: number of times student changed answer on this question
-    # Computed from ALL respond actions per (user, item_id), not just the final one
-    all_responds = df[df["action_type"] == "respond"]
-    respond_counts = all_responds.groupby(["user_id", "item_id"]).size().reset_index(name="n_responds")
-    responds = responds.merge(respond_counts, on=["user_id", "item_id"], how="left")
-    responds["feat_answer_changes"] = (responds["n_responds"].fillna(1) - 1).astype(np.int16)
-    responds = responds.drop(columns=["n_responds"])
+    # feat_answer_changes: cumulative count of prior respond actions on the same
+    # question by the same user (temporal ordering, no future leakage)
+    responds = responds.sort_values(["user_id", "item_id", "timestamp"])
+    responds["feat_answer_changes"] = responds.groupby(
+        ["user_id", "item_id"]
+    ).cumcount().astype(np.int16)
+    responds = responds.sort_values(["user_id", "timestamp"]).reset_index(drop=True)
     log(f"  feat_answer_changes: {(responds['feat_answer_changes'] > 0).mean()*100:.1f}% "
-        f"of responses have >= 1 change")
+        f"of responses have >= 1 prior attempt")
 
     # feat_is_rapid_guess: response faster than P10 of time_since_prev
     p10_threshold = responds["time_since_prev"].dropna().quantile(0.10)
@@ -185,28 +185,25 @@ def main():
     log("ENGAGEMENT & FATIGUE")
     log("=" * 50)
 
-    # feat_lecture_watches: cumulative count of lecture items consumed up to t-1
+    # feat_lecture_watches: cumulative count of lectures consumed before each respond
+    # Uses binary search on sorted per-user lecture timestamps (no future leakage)
     lecture_actions = df[(df["action_type"] == "enter") & (df["item_type"] == "lecture")]
-    lecture_counts = lecture_actions.groupby("user_id").size().rename("total_lectures")
+    lecture_ts = lecture_actions[["user_id", "timestamp"]].sort_values(["user_id", "timestamp"])
+    user_lec_ts = lecture_ts.groupby("user_id")["timestamp"].apply(np.array).to_dict()
 
-    # For each respond, count lectures consumed before that timestamp
-    # Approximation: use cumulative lecture count at each timestamp
-    lecture_ts = lecture_actions[["user_id", "timestamp"]].copy()
-    lecture_ts["lec_flag"] = 1
-    # Merge into responds and count lectures before each respond
-    merged = responds[["user_id", "timestamp"]].merge(
-        lecture_ts, on="user_id", how="left", suffixes=("", "_lec")
-    )
-    merged["before"] = (merged["timestamp_lec"] < merged["timestamp"]).astype(int) * merged["lec_flag"]
-    lec_before = merged.groupby(merged.index)["before"].sum()
+    respond_keys = responds[["user_id", "timestamp"]].values
+    lec_counts = np.zeros(len(responds), dtype=np.uint32)
+    for i in range(len(responds)):
+        uid = respond_keys[i, 0]
+        ts = respond_keys[i, 1]
+        lec_times = user_lec_ts.get(uid)
+        if lec_times is not None:
+            lec_counts[i] = np.searchsorted(lec_times, ts, side="left")
+        if (i + 1) % 5_000_000 == 0:
+            log(f"    {i + 1:,}/{len(responds):,}...")
 
-    # This approach is too memory-heavy for 23M rows. Use simpler cumulative approach.
-    del merged, lecture_ts, lec_before
-
-    # Simpler: per-user total lecture count (static feature, not temporal)
-    responds = responds.merge(lecture_counts, on="user_id", how="left")
-    responds["feat_lecture_watches"] = responds["total_lectures"].fillna(0).astype(np.uint32)
-    responds = responds.drop(columns=["total_lectures"])
+    responds["feat_lecture_watches"] = lec_counts
+    del lecture_ts, user_lec_ts, lec_counts
     log(f"  feat_lecture_watches: mean={responds['feat_lecture_watches'].mean():.1f}, "
         f"max={responds['feat_lecture_watches'].max():,}")
 

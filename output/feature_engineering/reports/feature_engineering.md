@@ -38,9 +38,9 @@ First-row features for each user are explicitly set to 0 (no prior history avail
 | `feat_listening_accuracy` | +0.097 | Mastery | Student's cumulative accuracy on Parts 1-4 (listening section) up to t-1. |
 | `feat_is_rapid_guess` | -0.052 | Behavioral | Binary flag: 1 if the response was faster than P10 of response time (690ms), indicating possible guessing. |
 | `feat_log_session_fatigue` | +0.038 | Engagement | Log1p of the count of all actions within a 1-hour rolling window before this response. Proxy for cognitive load. |
-| `feat_answer_changes` | -0.030 | Behavioral | Number of times the student changed their answer on this specific question before submitting. Unique to KT4. |
+| `feat_answer_changes` | -0.023 | Behavioral | Cumulative count of prior respond actions on this same question by this student. Captures re-encounters and answer revision. Unique to KT4. |
 | `feat_adaptive_ratio` | +0.022 | Behavioral | Proportion of the student's prior attempts that came from the adaptive recommendation system (source=`adaptive_offer`). |
-| `feat_lecture_watches` | +0.011 | Engagement | Total number of lectures the student has consumed. |
+| `feat_lecture_watches` | +0.017 | Engagement | Cumulative count of lectures consumed by the student before this response. |
 | `feat_total_attempts` | -0.010 | Mastery | Cumulative count of the student's respond actions up to t-1. Provides confidence weighting for accuracy features. |
 
 ---
@@ -63,14 +63,14 @@ The listening vs reading split has a mutual correlation of only **0.27**, meanin
 
 ### 3. Behavioral Signals
 
-- **Answer changes** capture uncertainty. Students who change their answer have dramatically lower accuracy (0.44) compared to those who answer once (0.68).
+- **Answer changes** capture re-encounters and uncertainty. A value of 0 means this is the student's first attempt at this question; higher values indicate prior attempts or answer revisions.
 - **Rapid guessing** (responses under 690ms) flags likely random answers. These have ~9 percentage points lower accuracy.
 - **Adaptive ratio** measures how much the student relies on the AI recommendation system vs self-directed study.
 
 ### 4. Engagement & Fatigue
 
 - **Session fatigue** (log-transformed) counts all actions in the preceding hour. Higher values indicate extended study sessions where cognitive load may reduce performance.
-- **Lecture watches** captures how much supplementary content the student has consumed.
+- **Lecture watches** captures how many lectures the student has consumed up to this point in time.
 
 ---
 
@@ -83,7 +83,10 @@ The listening vs reading split has a mutual correlation of only **0.27**, meanin
 ### Quality Checks
 - Zero null values across all 15 columns
 - Zero users with non-zero accuracy at first response (leakage-free)
+- All cumulative features use only data from interactions before time *t* (no future leakage)
 - `feat_total_attempts` is monotonically increasing per user
+- `feat_lecture_watches` is cumulative per user over time (not static lifetime count)
+- `feat_answer_changes` is cumulative per (user, question) over time
 - `feat_is_rapid_guess` flags ~10% of responses
 - Listening vs reading accuracy mutual correlation = 0.27 (low redundancy)
 - Row count matches preprocessed respond actions: 23,308,702
