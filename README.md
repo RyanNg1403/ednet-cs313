@@ -11,12 +11,12 @@ Data mining project built on **EdNet-KT4** — the largest public educational in
 
 Raw data and processed outputs are excluded from git due to size. Download from the links below.
 
-| File | Description | Source |
-|---|---|---|
-| EdNet-KT4 (raw) | 297K per-user CSV files, 6.4 GB | [Download](http://bit.ly/ednet-kt4) |
-| Contents (metadata) | Questions, lectures, payments, coupons | [Download](http://bit.ly/ednet-content) |
-| `kt4_preprocessed.parquet` | Cleaned & integrated dataset (131M rows, 30 cols) | [Google Drive](https://drive.google.com/file/d/1-y5GXRjb9xs1JMt8L0R_D6eOjzZpfvHI/view?usp=drive_link) |
-| `kt4_features.parquet` | Engineered features for correctness prediction (23.3M rows, 15 cols) | [Google Drive](https://drive.google.com/file/d/1CGxjrjg97-JZ602ll0tbRm3o2kAaD6H4/view?usp=drive_link) |
+| File                       | Description                                                          | Source                                                                                                |
+| -------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| EdNet-KT4 (raw)            | 297K per-user CSV files, 6.4 GB                                      | [Download](http://bit.ly/ednet-kt4)                                                                   |
+| Contents (metadata)        | Questions, lectures, payments, coupons                               | [Download](http://bit.ly/ednet-content)                                                               |
+| `kt4_preprocessed.parquet` | Cleaned & integrated dataset (131M rows, 30 cols)                    | [Google Drive](https://drive.google.com/file/d/1-y5GXRjb9xs1JMt8L0R_D6eOjzZpfvHI/view?usp=drive_link) |
+| `kt4_features.parquet`     | Engineered features for correctness prediction (23.3M rows, 15 cols) | [Google Drive](https://drive.google.com/file/d/1CGxjrjg97-JZ602ll0tbRm3o2kAaD6H4/view?usp=drive_link) |
 
 ## Repository Structure
 
@@ -31,6 +31,8 @@ preprocessing/                    # Data Cleaning, Integration, Transformation
 └── preprocess.py
 feature_engineering/              # Feature Extraction for Correctness Prediction
 └── generate_features.py
+feature_selection/                # Optimal Feature Set Selection
+└── feature_selection.py
 output/
 ├── eda/                          # EDA plots (26) & reports
 │   ├── plots/
@@ -38,7 +40,11 @@ output/
 ├── preprocessing/                # Preprocessing plots (2) & report
 │   ├── plots/
 │   └── reports/
-└── feature_engineering/          # Feature engineering plots (2) & report
+├── feature_engineering/          # Feature engineering plots (2) & report
+│   ├── plots/
+│   └── reports/
+└── feature_selection/            # Selection plots, metrics (CSV) & report
+    ├── metrics/
     ├── plots/
     └── reports/
 ```
@@ -46,9 +52,13 @@ output/
 ## Key Findings
 
 Full reports with plots:
+
 - EDA: [`output/eda/reports/`](output/eda/reports/)
 - Preprocessing: [`output/preprocessing/reports/`](output/preprocessing/reports/)
 - Feature Engineering: [`output/feature_engineering/reports/`](output/feature_engineering/reports/)
+- Feature Selection: [`output/feature_selection/reports/`](output/feature_selection/reports/)
+
+## EDA
 
 - **Extremely skewed user activity**: median 31 interactions vs. mean 441
 - **Sprint mode dominates** (71%) — students prefer self-directed practice over system recommendations
@@ -64,7 +74,7 @@ Full reports with plots:
 2. Run:
    ```bash
    python3 -m venv .venv && source .venv/bin/activate
-   pip install pandas pyarrow matplotlib seaborn numpy tqdm
+   pip install pandas pyarrow matplotlib seaborn numpy tqdm lightgbm scikit-learn
    python eda/01_convert_to_parquet.py    # ~5 min
    python eda/02_eda_overview.py
    python eda/03_eda_distributions.py
@@ -72,6 +82,7 @@ Full reports with plots:
    python eda/05_eda_temporal.py
    python preprocessing/preprocess.py
    python feature_engineering/generate_features.py
+   python feature_selection/feature_selection.py
    ```
 
 ## Acknowledgments
@@ -88,6 +99,6 @@ Contact: [duyvnl@uit.edu.vn](mailto:duyvnl@uit.edu.vn)
 
 This project uses the **EdNet** dataset by Riiid (now Socra AI):
 
-> Youngduck Choi, Youngnam Lee, Dongmin Shin, et al. *"EdNet: A Large-Scale Hierarchical Dataset in Education."* AIED, 2020. [[Paper]](https://arxiv.org/abs/1912.03072) [[Original Repo]](https://github.com/riiid/ednet)
+> Youngduck Choi, Youngnam Lee, Dongmin Shin, et al. _"EdNet: A Large-Scale Hierarchical Dataset in Education."_ AIED, 2020. [[Paper]](https://arxiv.org/abs/1912.03072) [[Original Repo]](https://github.com/riiid/ednet)
 
 Dataset licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
