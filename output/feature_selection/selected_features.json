@@ -1,0 +1,9 @@
+[
+    "feat_question_difficulty",
+    "feat_reading_accuracy",
+    "feat_listening_accuracy",
+    "feat_answer_changes",
+    "feat_total_attempts",
+    "feat_is_rapid_guess",
+    "feat_log_session_fatigue"
+]
