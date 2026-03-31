@@ -1,9 +1,12 @@
 [
-    "feat_question_difficulty",
-    "feat_reading_accuracy",
-    "feat_listening_accuracy",
-    "feat_answer_changes",
-    "feat_total_attempts",
-    "feat_is_rapid_guess",
-    "feat_log_session_fatigue"
+        "feat_question_difficulty",
+        "feat_current_part_accuracy", 
+        "feat_answer_changes",
+        "feat_reading_accuracy",
+        "feat_recent_accuracy",       
+        "feat_is_rapid_guess",
+        "feat_total_attempts",
+        "feat_listening_accuracy",
+        "feat_session_fatigue",
+        "feat_explanation_ratio"      
 ]

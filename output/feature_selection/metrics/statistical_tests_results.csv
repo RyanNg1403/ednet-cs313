@@ -1,11 +1,14 @@
 Feature,Method,Score,p-value
-feat_question_difficulty,ANOVA (F-test),1840374.9915070513,0.0
-feat_overall_accuracy,ANOVA (F-test),376205.92579341837,0.0
-feat_reading_accuracy,ANOVA (F-test),237138.90735379563,0.0
-feat_listening_accuracy,ANOVA (F-test),178100.40244215718,0.0
-feat_is_rapid_guess,Chi-Square,43121.19673412794,0.0
-feat_log_session_fatigue,ANOVA (F-test),28986.417733512328,0.0
+feat_question_difficulty,ANOVA (F-test),1763301.0190581102,0.0
+feat_current_part_accuracy,ANOVA (F-test),430007.74290694465,0.0
+feat_overall_accuracy,ANOVA (F-test),376266.47467927955,0.0
+feat_reading_accuracy,ANOVA (F-test),237138.90735437276,0.0
+feat_recent_accuracy,ANOVA (F-test),229954.05009139696,0.0
+feat_listening_accuracy,ANOVA (F-test),178100.40244139393,0.0
+feat_explanation_ratio,ANOVA (F-test),138275.83062654632,0.0
+feat_is_rapid_guess,Chi-Square,57162.014066105825,0.0
 feat_answer_changes,ANOVA (F-test),15793.688325109639,0.0
-feat_adaptive_ratio,ANOVA (F-test),8784.565375136617,0.0
-feat_lecture_watches,ANOVA (F-test),4909.514743906534,0.0
-feat_total_attempts,ANOVA (F-test),283.18495357438184,1.520620702306762e-63
+feat_adaptive_ratio,ANOVA (F-test),8785.921944342424,0.0
+feat_session_fatigue,ANOVA (F-test),5272.716704490004,0.0
+feat_lecture_watches,ANOVA (F-test),1522.360496195163,0.0
+feat_total_attempts,ANOVA (F-test),283.74723355952557,1.1468258127361292e-63
