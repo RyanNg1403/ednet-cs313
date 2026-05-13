@@ -43,9 +43,11 @@ output/
 ├── feature_engineering/          # Feature engineering plots (2) & report
 │   ├── plots/
 │   └── reports/
-└── feature_selection/            # Selection plots, metrics (CSV) & report
-    ├── metrics/
-    ├── plots/
+├── feature_selection/            # Selection plots, metrics (CSV) & report
+│   ├── metrics/
+│   ├── plots/
+│   └── reports/
+└── modeling/                     # Per-model training methodology reports
     └── reports/
 ```
 
@@ -57,6 +59,7 @@ Full reports with plots:
 - Preprocessing: [`output/preprocessing/reports/`](output/preprocessing/reports/)
 - Feature Engineering: [`output/feature_engineering/reports/`](output/feature_engineering/reports/)
 - Feature Selection: [`output/feature_selection/reports/`](output/feature_selection/reports/)
+- Modeling: [`output/modeling/reports/`](output/modeling/reports/)
 
 ## EDA
 
@@ -67,6 +70,17 @@ Full reports with plots:
 - **Part 5 (grammar) overrepresented** at 43% of all questions
 - **Bimodal activity peaks** in Jan 2019 and Jul-Aug 2019 (TOEIC exam seasons)
 - **461K exact duplicates** (0.35%) detected and removed; all missing values are structural
+
+## Modeling
+
+Each team member trained models in their own Colab notebook on Drive. Source notebooks, trained models, and per-member methodology reports are linked below.
+
+| Author | Models | Best AUC | Source notebook | Trained models | Report |
+|---|---|---|---|---|---|
+| Phương | Random Forest, XGBoost | 0.7220 (XGB) | [`RandomForest_XGBoost_Models.ipynb`](https://drive.google.com/file/d/1PSdFzMcT8W18zOvOcG9p0Sk64Fyiogca/view?usp=sharing) | [RF `.pkl`](https://drive.google.com/file/d/1CA3BxvcUCKfWuU5EPipd1KsNAPS4Wsfl/view?usp=sharing) · [XGB `.json`](https://drive.google.com/file/d/1hVVKA0zQ_yKMwYaEOi9W7eQcb5JTdiXX/view?usp=sharing) · [folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) | [`phuong_random_forest_xgboost.md`](output/modeling/reports/phuong_random_forest_xgboost.md) |
+| Nguyễn | LightGBM, LSTM, 1D CNN | 0.7223 (LightGBM) | [Colab notebook](https://colab.research.google.com/drive/1d_wp7bnUi9LPoRd9xWUMmm_Rkfal6DNR?usp=drive_link) | [LightGBM `.pkl`](https://drive.google.com/file/d/1AynYV3uTakHkn8ljsFa6XpnO2Zx7O6Gh/view?usp=sharing) · [LSTM-Fair `.keras`](https://drive.google.com/file/d/1pt8N4jBP7MNRgEN7ffOcApPQCS1nWUwb/view?usp=sharing) · [LSTM-Chunk `.keras`](https://drive.google.com/file/d/17uVZRRkVK1rvGwHimBbteVnjx5GtJ0U_/view?usp=sharing) · [1D-CNN `.keras`](https://drive.google.com/file/d/1xgiK-z54v-KnlJm0-uFW5IWgqsvVcUiq/view?usp=sharing) · [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) | [`nguyen_lightgbm_lstm_cnn.md`](output/modeling/reports/nguyen_lightgbm_lstm_cnn.md) |
+
+Both authors' methodology and the divergences from the team-canonical train/test split (defined in [feature selection](output/feature_selection/reports/feature_selection_report.md)) are detailed in each report.
 
 ## Setup
 
@@ -84,6 +98,7 @@ Full reports with plots:
    python feature_engineering/generate_features.py
    python feature_selection/feature_selection.py
    ```
+3. Model training: see the [Modeling](#modeling) table above. Each member's notebook runs on Google Colab against the shared Drive feature tables.
 
 ## Acknowledgments
 

@@ -3,6 +3,9 @@ KT4/
 contents/
 processed/
 
+# Per-member training artifacts mirrored from Drive (notebooks, models, parquets)
+/modeling/
+
 # Python
 .venv/
 __pycache__/
