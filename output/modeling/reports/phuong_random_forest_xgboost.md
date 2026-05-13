@@ -38,7 +38,7 @@ train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 - **Test**: 4,661,741 rows (20%)
 - Class ratio preserved: 56.87% correct / 43.13% incorrect
 
-> **Methodology note.** This is a **row-level stratified split**, not the `GroupShuffleSplit` by `user_id` that the team's [feature selection report](../../feature_selection/reports/feature_selection_report.md) defined as the canonical split. As a result, interactions from the same student can appear in both training and test sets, which inflates evaluation metrics relative to a true held-out user split. The `test_users_list.csv` produced by feature selection is not consumed here. This divergence should be reconciled if the project requires apples-to-apples comparison across team members' models.
+> **Methodology note.** This is a **row-level** split, not a user-level split (`GroupShuffleSplit` by `user_id`). With ~296K students and a row-level shuffle, the same student's interactions land in both training and test sets — verified by simulation: 83.34% of users appear on both sides; only 0.67% of test users are truly held out. This inflates evaluation metrics relative to a user-held-out split.
 
 ## 3. Random Forest
 
@@ -165,5 +165,5 @@ A LightGBM reference (AUC 0.7223, Accuracy 66.68%) from the team's prior LightGB
 
 - All randomness pinned to `random_state=42` / `seed=42`.
 - Data path inside notebook is hard-coded to `/content/drive/MyDrive/Colab Notebooks/data mining/`.
-- The feature table consumed (`kt4_features_1.parquet`) was produced by Nguyễn's Colab feature-engineering pipeline, **not** by the in-repo `feature_engineering/generate_features.py` (which produces a different file, `kt4_features.parquet`, with a different feature set).
+- The feature table consumed (`kt4_features_1.parquet`) was produced by Nguyễn's Colab DuckDB pipeline — schema matches Cell 3 of his notebook (18 columns, the "ultimate" pipeline) despite the filename suggesting Cell 0. It is **not** the output of the in-repo `feature_engineering/generate_features.py` (which produces a different 15-column file, `kt4_features.parquet`).
 - Re-running the Random Forest cell sequentially takes ~5 h of compute; the saved `.pkl` is provided to skip retraining.

@@ -23,10 +23,12 @@ In addition to model training, the notebook also implements **two upstream DuckD
 
 The notebook contains two DuckDB pipelines that read `kt4_preprocessed.parquet` and emit feature tables:
 
-- **Cell 0 → `kt4_features_1.parquet`**: 11 base features grouped into Long-term history, SAKT-style concept attention (`PARTITION BY user_id, part`), Recent-20-question window, Learning strategy (adaptive/explanation/lecture), and Session fatigue (60-min rolling). This is the file Phương's models consume.
-- **Cell 3 → `kt4_features_ultimate.parquet`**: Adds a leakage-corrected question difficulty (`q_attempts` / `q_incorrect` windows), separate listening (parts 1-4) and reading (parts 5-7) accuracy tracks, and an answer-changes fix. This is the file the LightGBM and LSTM-Fair models below consume.
+- **Cell 0 → `kt4_features_1.parquet`** (per the `OUTPUT_FILE` variable in cell source): 13-column output projecting Long-term history, SAKT-style concept attention (`PARTITION BY user_id, part`), Recent-20-question window, Learning strategy (adaptive/explanation/lecture), and Session fatigue (60-min rolling).
+- **Cell 3 → `kt4_features_ultimate.parquet`** (per `OUTPUT_FILE`): 18-column output that adds a leakage-corrected question difficulty (`q_attempts` / `q_incorrect` windows), separate listening (parts 1-4) and reading (parts 5-7) accuracy tracks, and an answer-changes column.
 
 All cumulative features use `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING` to prevent same-row leakage.
+
+> **Note on filename vs. content.** The file Phương consumes — *named* `kt4_features_1.parquet` in her Drive folder — has 18 columns matching the Cell 3 outer SELECT, not the 13 columns of the Cell 0 SELECT. Schema and row count (23,308,702) are identical to what Cell 3 should produce. So in practice both members train on the same Cell 3 output; the filename is misleading. Either the file was renamed before being shared with Phương, or Cell 0 was edited after the original file was generated.
 
 ## 2. LightGBM (Headline Model)
 
@@ -168,7 +170,7 @@ Saved to `ednet_lstm_chunking.keras` and `ednet_1d_cnn_chunking.keras`.
 
 | Concern | Detail |
 |---|---|
-| Split strategy | The team's [feature selection report](../../feature_selection/reports/feature_selection_report.md) mandates `GroupShuffleSplit` by `user_id` with the canonical `test_users_list.csv`. The LightGBM and LSTM-Fair runs use a **row-level random split** instead — interactions from the same student can land in both train and test, which inflates metrics. The LSTM/CNN chunking variants do split by user (matching the spec in spirit), but use their own seed, not the canonical `test_users_list.csv`. |
+| Split strategy | The LightGBM and LSTM-Fair runs use a **row-level random split** (`train_test_split(X, y, test_size=0.2, random_state=42)`) — interactions from the same student land in both train and test, which inflates metrics. The LSTM/CNN chunking variants split at the user level (`train_test_split(all_users, ...)`) and so do not have within-user leakage. |
 | Common test set for benchmark | The final benchmark (cell 17) re-evaluates all four models on a **30,000-user sample** drawn from the same `test_users` produced by `train_test_split(all_users, ..., random_state=42)`. This is internally consistent across the four models in this notebook but is **not** the same test set used by Phương's RF / XGBoost notebook. |
 | Upstream feature pipeline | The notebook regenerates the feature table from `kt4_preprocessed.parquet` rather than reusing the in-repo `feature_engineering/generate_features.py`. The resulting features overlap heavily by name but were produced by a different script with slightly different windowing definitions. |
 
@@ -199,4 +201,4 @@ All four trained model files are available in the author's [Drive folder](https:
 | [`ednet_lstm_chunking.keras`](https://drive.google.com/file/d/17uVZRRkVK1rvGwHimBbteVnjx5GtJ0U_/view?usp=sharing) | 963 KB | Available |
 | [`ednet_1d_cnn_chunking.keras`](https://drive.google.com/file/d/1xgiK-z54v-KnlJm0-uFW5IWgqsvVcUiq/view?usp=sharing) | 668 KB | Available |
 | `feature_importance_barchart.png` | — | **Not in folder.** Generated inside the notebook (cell 5) and saved to `DataMining_Project/feature_importance_barchart.png` on the author's Drive; not yet shared in the public folder. |
-| `kt4_features_ultimate.parquet` (upstream input consumed by LightGBM & LSTM-Fair) | — | **Not in folder.** Produced by cell 3 of the notebook. Distinct from the in-repo `kt4_features.parquet`; needed to reproduce training but not to use the saved models. |
+| `kt4_features_ultimate.parquet` (upstream input consumed by LightGBM & LSTM-Fair) | — | **Not in folder under this name.** But its content (18 cols, 23.3M rows, Cell 3 schema) is available as `kt4_features_1.parquet` in Phương's [Drive folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing). Needed to reproduce training but not to use the saved models. |
