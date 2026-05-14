@@ -73,6 +73,49 @@ Full reports with plots:
 
 ## Modeling
 
+### Task setup
+
+**Problem**: binary classification — predict whether a student answers a given question correctly. The label is `1` if the response is correct and `0` otherwise; every model outputs a probability in `[0, 1]`. All six models are evaluated on the **last response of each test user** (one prediction per user, 59,341 predictions total), so their AUC/Accuracy/F1 are directly comparable.
+
+The two model families consume **different inputs**: the trees see a single tabular row per prediction; the deep models see a sequence of the user's last 100 interactions.
+
+#### Inputs per model
+
+| Model | Input parquet | Input shape | Per-sample content |
+|---|---|---|---|
+| Random Forest | `kt4_features_ultimate.parquet` | `(11,)` tabular row | 11 engineered features of the current response |
+| XGBoost | `kt4_features_ultimate.parquet` | `(11,)` tabular row | same 11 engineered features |
+| LightGBM | `kt4_features_ultimate.parquet` | `(11,)` tabular row | same 11 engineered features |
+| LSTM-11-features | `kt4_features_ultimate.parquet` | `(100, 11)` sequence | the user's last 100 interactions, each described by the 11 engineered features |
+| LSTM-raw | `kt4_preprocessed.parquet` | `(100, 4)` sequence | the user's last 100 interactions, each described by 4 raw signals: `part`, `log1p(time_since_prev)`, `hour-of-day`, shifted past `is_correct` |
+| 1D-CNN-raw | `kt4_preprocessed.parquet` | `(100, 4)` sequence | same 4 raw signals as LSTM-raw |
+
+The 11 engineered features (shared by RF / XGBoost / LightGBM / LSTM-11-features):
+
+```
+feat_question_difficulty, feat_current_part_accuracy, feat_answer_changes,
+feat_overall_accuracy, feat_reading_accuracy, feat_recent_accuracy,
+feat_is_rapid_guess, part, feat_total_attempts, feat_listening_accuracy,
+feat_explanation_ratio
+```
+
+Note: the 4 raw signals do **not** include `feat_question_difficulty`, which is the dominant predictive signal for the trees — this structurally caps the achievable AUC of LSTM-raw and 1D-CNN-raw below the tree models.
+
+#### Outputs per model
+
+| Model | Training target | Test-time output |
+|---|---|---|
+| Random Forest | `is_correct` of each training row | One probability per test user — predicted on that user's last response |
+| XGBoost | `is_correct` of each training row | One probability per test user — predicted on that user's last response |
+| LightGBM | `is_correct` of each training row | One probability per test user — predicted on that user's last response |
+| LSTM-11-features | `is_correct` of the **last** step of each user's sequence | One probability per test user (architecture emits a single output per sequence) |
+| LSTM-raw | `is_correct` of the **last** step of each user's sequence | One probability per test user |
+| 1D-CNN-raw | `is_correct` of the **last** step of each user's sequence | One probability per test user |
+
+The trees are trained per-row but evaluated only on each user's last row, so the test-time prediction task is identical across all six models: *given everything we know about a user up to their last question, how likely is that last answer to be correct?*
+
+### Results
+
 Both members retrained on **2026-05-14** with a shared user-level train/test split (`train_test_split(unique_users, test_size=0.2, random_state=42)` on `kt4_features_ultimate.parquet`). All six models scored on the same 59,341 test users (within 1 user), each user's last response.
 
 Test-set metrics (sorted by AUC, all on the same 59,341 predictions):
