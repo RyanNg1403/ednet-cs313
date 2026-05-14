@@ -59,6 +59,42 @@ export default function App() {
     }
   };
 
+  // Derived values and memoized computations must be declared unconditionally
+  // so the Hooks call order stays stable between renders.
+  const recent7 = history ? history.slice(-7) : [] as DayData[];
+  const today = history ? history[history.length - 1] : null as DayData | null;
+
+  const partStats = useMemo(() => {
+    if (!recent7.length) return [] as any[];
+    return PARTS.map(p => {
+      const rows = recent7.filter(d => d.parts[p.id]).map(d => d.parts[p.id]);
+      if (!rows.length) return null;
+      const avgPct = Math.round(rows.reduce((s, r) => s + r.pct, 0) / rows.length);
+      const totalQ = rows.reduce((s, r) => s + r.n, 0);
+      const totalCorrect = rows.reduce((s, r) => s + r.correct, 0);
+      return { ...p, avgPct, sessions: rows.length, totalQ, totalCorrect };
+    }).filter(Boolean);
+  }, [recent7]);
+
+  const weakParts = useMemo(() => {
+    return [...(partStats as any[])].sort((a, b) => a.avgPct - b.avgPct);
+  }, [partStats]);
+
+  const behaviors = useMemo(() => ({
+    notes: recent7.filter(d => d.tookNotes).length,
+    lectures: recent7.filter(d => d.watchedLecture).length,
+    reviewed: recent7.filter(d => d.reviewedWrong).length,
+    explained: recent7.filter(d => d.readExplanation).length,
+    anxiety: recent7.reduce((s, d) => s + d.anxietySignals, 0),
+  }), [recent7]);
+
+  const weekOverWeekDelta = useMemo(() => {
+    if (!history || history.length < 14) return 0;
+    const w1 = history.slice(0, 7).reduce((s, d) => s + d.accuracy, 0) / 7;
+    const w2 = history.slice(7).reduce((s, d) => s + d.accuracy, 0) / 7;
+    return Math.round(w2 - w1);
+  }, [history]);
+
   if (!history) {
     return (
       <div className="flex h-screen bg-bg-secondary items-center justify-center font-sans">
@@ -90,39 +126,6 @@ export default function App() {
       </div>
     );
   }
-
-  const today = history[history.length - 1];
-  const recent7 = history.slice(-7);
-
-  // Aggregated Part Stats
-  const partStats = useMemo(() => {
-    return PARTS.map(p => {
-      const rows = recent7.filter(d => d.parts[p.id]).map(d => d.parts[p.id]);
-      if (!rows.length) return null;
-      const avgPct = Math.round(rows.reduce((s, r) => s + r.pct, 0) / rows.length);
-      const totalQ = rows.reduce((s, r) => s + r.n, 0);
-      const totalCorrect = rows.reduce((s, r) => s + r.correct, 0);
-      return { ...p, avgPct, sessions: rows.length, totalQ, totalCorrect };
-    }).filter(Boolean);
-  }, [recent7]);
-
-  const weakParts = useMemo(() => {
-    return [...(partStats as any[])].sort((a, b) => a.avgPct - b.avgPct);
-  }, [partStats]);
-
-  const behaviors = useMemo(() => ({
-    notes: recent7.filter(d => d.tookNotes).length,
-    lectures: recent7.filter(d => d.watchedLecture).length,
-    reviewed: recent7.filter(d => d.reviewedWrong).length,
-    explained: recent7.filter(d => d.readExplanation).length,
-    anxiety: recent7.reduce((s, d) => s + d.anxietySignals, 0),
-  }), [recent7]);
-
-  const weekOverWeekDelta = useMemo(() => {
-    const w1 = history.slice(0, 7).reduce((s, d) => s + d.accuracy, 0) / 7;
-    const w2 = history.slice(7).reduce((s, d) => s + d.accuracy, 0) / 7;
-    return Math.round(w2 - w1);
-  }, [history]);
 
   const handleRunCoaching = async () => {
     setLoadingAI(true);

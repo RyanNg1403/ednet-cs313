@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+import polars as pl
 import numpy as np
 import xgboost as xgb
 import google.generativeai as genai
@@ -40,11 +41,11 @@ async def startup_event():
     logging.info("Loading dataset...")
     try:
         # Load the features parquet file
-        df_features = pd.read_parquet("data/kt4_features_1.parquet")
+        df_features = pl.read_parquet("data/kt4_features_1.parquet")
         # Ensure timestamp is numeric
-        df_features['timestamp'] = pd.to_numeric(df_features['timestamp'])
+        df_features = df_features.with_columns(pl.col('timestamp').cast(pl.Float64, strict=False))
         # Sort by user_id and timestamp for easier processing
-        df_features = df_features.sort_values(by=['user_id', 'timestamp'])
+        df_features = df_features.sort(['user_id', 'timestamp'])
         logging.info(f"Loaded dataset with {len(df_features)} rows.")
     except Exception as e:
         logging.error(f"Failed to load dataset: {e}")
@@ -136,9 +137,11 @@ async def get_user_dashboard(user_id: int):
     if df_features is None:
         raise HTTPException(status_code=500, detail="Dataset not loaded")
         
-    user_data = df_features[df_features['user_id'] == user_id]
-    if len(user_data) == 0:
+    user_data_pl = df_features.filter(pl.col('user_id') == user_id)
+    if len(user_data_pl) == 0:
         raise HTTPException(status_code=404, detail="User not found")
+        
+    user_data = user_data_pl.to_pandas()
         
     # Get history for the charts
     history = generate_mock_history(user_data)
