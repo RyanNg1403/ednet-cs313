@@ -75,7 +75,7 @@ Full reports with plots:
 
 Both members retrained on **2026-05-14** with a shared user-level train/test split (`train_test_split(unique_users, test_size=0.2, random_state=42)` on `kt4_features_ultimate.parquet`). All six models scored on the same 59,341 test users (within 1 user), each user's last response.
 
-| Author | Model | Plan B AUC | Source | Drive |
+| Author | Model | Test AUC | Source | Drive |
 |---|---|---|---|---|
 | Phương | XGBoost | **0.6871** | [notebook + folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) | `xgboost_final_model.json` |
 | Phương | Random Forest | 0.6831 | same | `random_forest_final_model.pkl` |

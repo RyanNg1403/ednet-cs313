@@ -63,9 +63,9 @@ This is *equivalent within 1 user* to the team-canonical split (`sklearn.model_s
 | `n_jobs` | -1 | All CPU cores |
 | `random_state` | 42 | |
 
-### Plan B test-set metrics
+### Test-set metrics (last response per test user)
 
-Scored on the **last response per test user** (59,341 predictions, the team-agreed Plan B evaluation, run from `evaluate_planb.py`):
+Scored on the **last response per test user** (59,341 predictions — the team-agreed evaluation protocol that aligns the trees with how the deep models predict):
 
 | Metric | Value |
 |---|---|
@@ -76,7 +76,7 @@ Scored on the **last response per test user** (59,341 predictions, the team-agre
 | F1-Score | 0.4991 |
 | Log Loss | 0.6427 |
 
-> **What Phương's own evaluation cell reports** (cell 8) is different: she evaluates on *all rows* of test users (~4.6M predictions), not last-row-only. Those numbers exist in her notebook output but are on a different prediction task and aren't directly comparable to the deep models. The Plan B metrics above are the apples-to-apples ones.
+> **What Phương's own evaluation cell reports** (cell 8) is different: she evaluates on *all rows* of test users (~4.6M predictions), not last-row-only. Those numbers exist in her notebook output but are on a different prediction task and aren't directly comparable to the deep models. The metrics above (last response per user) are the apples-to-apples ones.
 
 ## 4. XGBoost
 
@@ -100,7 +100,7 @@ Scored on the **last response per test user** (59,341 predictions, the team-agre
 
 These are unchanged from the May 12 version. (The `colsample_bytree=0.9942` value is still the same Optuna-derived value Nguyễn used for his earlier LightGBM; Phương borrowed it without re-tuning. With the new user-level split, this isn't strictly principled but it's the value she used and the model trained around it.)
 
-### Plan B test-set metrics
+### Test-set metrics (last response per test user)
 
 | Metric | Value |
 |---|---|
@@ -118,4 +118,4 @@ XGBoost narrowly outperforms RF on the same test set (Δ = 0.004 AUC), but this 
 - All randomness pinned to `random_state=42` / `seed=42` / `np.random.seed(42)`.
 - Data path inside notebook is `/content/drive/MyDrive/Colab Notebooks/data mining/kt4_features_1.parquet` (Phương's local copy of the canonical engineered table).
 - The canonical engineered parquet (also distributed by Nguyễn as `kt4_features_ultimate.parquet`) is byte-identical: same MD5, same 18-column schema, same 23,308,702 rows.
-- Saved models are loadable locally and were re-scored from `evaluate_planb.py` to produce the metrics above.
+- Saved models are loadable locally; the metrics above come from re-scoring the saved weights against each test user's last response.

@@ -60,7 +60,7 @@ Chunked incremental training on the 11-feature engineered table:
 | `device_type` | `cpu` |
 | `num_iterations` | 30 (per chunk) |
 
-### Plan B test-set metrics
+### Test-set metrics (last response per test user)
 
 Scored on the **last response per test user** (59,341 predictions):
 
@@ -102,7 +102,7 @@ Most engineered features are already in `[0, 1]` and used as-is. Three are resca
 
 5 outer epochs, each looping through 8 chunks of 30,000 train users. `model.fit()` is called once per chunk with `validation_data=valid` and `epochs=1`. No early stopping.
 
-### Plan B test-set metrics — anomalous
+### Test-set metrics (last response per test user) — anomalous
 
 | Metric | Value |
 |---|---|
@@ -113,7 +113,7 @@ Most engineered features are already in `[0, 1]` and used as-is. Three are resca
 | F1-Score | 0.6413 |
 | Log Loss | 0.7462 |
 
-**This model is essentially predicting "correct" for nearly every user** (Recall=0.98, Precision=0.48). The Plan B evaluation script applies the exact same per-feature scaling that Nguyễn's own cell-4 evaluation cell uses, so this isn't a scoring bug — the model itself is the issue.
+**This model is essentially predicting "correct" for nearly every user** (Recall=0.98, Precision=0.48). The unified evaluation script applies the exact same per-feature scaling that Nguyễn's own cell-4 evaluation cell uses, so this isn't a scoring bug — the model itself is the issue.
 
 Most plausible cause: a training-time preprocessing inconsistency that emerged when the architecture was extended from the previous 5-feature version. Worth investigating before relying on this model. Given LightGBM achieves 0.6812 on the same 11 features, an LSTM with comparable capacity should be able to reach at least 0.65.
 
@@ -134,7 +134,7 @@ Features per timestep: `part/7`, `log1p(time_since_prev)/15`, `hour/24`, shifted
 
 Training pattern: 5 outer epochs × 6 chunks of 40,000 train users; `model.fit(..., epochs=1)` per chunk.
 
-### Plan B test-set metrics
+### Test-set metrics (last response per test user)
 
 | Metric | Value |
 |---|---|
@@ -163,7 +163,7 @@ Dense(1, activation='sigmoid')
 
 Same 4 raw features as LSTM-raw, same input parquet, same training loop. The `Masking` layer is architecturally bypassed at the first Conv1D (Conv1D doesn't propagate masks), but the trained weights are empirically padding-invariant on in-distribution inputs (verified previously).
 
-### Plan B test-set metrics
+### Test-set metrics (last response per test user)
 
 | Metric | Value |
 |---|---|
@@ -176,7 +176,7 @@ Same 4 raw features as LSTM-raw, same input parquet, same training loop. The `Ma
 
 Slightly outperforms LSTM-raw on the same input — a small but consistent reversal from the earlier (leaky) benchmark where they were tied at AUC 0.6124.
 
-## 6. Cross-model summary (Plan B benchmark)
+## 6. Cross-model summary (unified benchmark)
 
 All four of Nguyễn's models scored on the same 59,341 test users, last response per user:
 
