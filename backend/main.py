@@ -10,7 +10,7 @@ import pandas as pd
 import polars as pl
 import numpy as np
 import xgboost as xgb
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -60,13 +60,12 @@ async def startup_event():
     except Exception as e:
         logging.error(f"Failed to load model: {e}")
 
-    # Configure Gemini
-    api_key = os.getenv("GEMINI_API_KEY")
+    # Configure Groq
+    api_key = os.getenv("GROQ_API_KEY")
     if api_key and api_key != "your_api_key_here":
-        genai.configure(api_key=api_key)
-        logging.info("Gemini configured.")
+        logging.info("Groq API key configured.")
     else:
-        logging.warning("GEMINI_API_KEY not set or invalid. AI features will fail.")
+        logging.warning("GROQ_API_KEY not set or invalid. AI features might fail if key is not in environment.")
 
 
 def generate_mock_history(user_data):
@@ -244,7 +243,7 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
         "error": False
     }
     
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     if not api_key or api_key == "your_api_key_here":
         fallback["error"] = True
         return fallback
@@ -279,18 +278,27 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json"
-            )
+        client = Groq()
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+              {
+                "role": "user",
+                "content": prompt
+              }
+            ],
+            temperature=1,
+            max_tokens=1024,
+            top_p=1,
+            response_format={"type": "json_object"},
+            stream=False,
         )
-        data = json.loads(response.text)
+        response_text = completion.choices[0].message.content
+        data = json.loads(response_text)
         data["error"] = False
         return data
     except Exception as e:
-        logging.error(f"Gemini API Error: {e}")
+        logging.error(f"Groq API Error: {e}")
         fallback["error"] = True
         return fallback
 
@@ -341,17 +349,26 @@ async def submit_live_test(user_id: int, payload: LiveTestSubmission):
     """
     
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json"
-            )
+        client = Groq()
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+              {
+                "role": "user",
+                "content": prompt
+              }
+            ],
+            temperature=1,
+            max_tokens=1024,
+            top_p=1,
+            response_format={"type": "json_object"},
+            stream=False,
         )
-        data = json.loads(response.text)
+        response_text = completion.choices[0].message.content
+        data = json.loads(response_text)
         return data
     except Exception as e:
-        logging.error(f"Gemini API Error in Live Test: {e}")
+        logging.error(f"Groq API Error in Live Test: {e}")
         return {
             "liveAccuracy": live_acc,
             "nextPrediction": pred_prob,
