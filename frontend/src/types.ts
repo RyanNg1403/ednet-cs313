@@ -31,3 +31,26 @@ export interface AICoachingData {
   tomorrowFocus: string;
   error?: boolean;
 }
+
+export interface TaskItem {
+  title: string;
+  desc: string;
+  time: string;
+  iconType: string;
+  active: boolean;
+}
+
+export interface LiveTestPayload {
+  answers: {
+    questionId: string;
+    isCorrect: boolean;
+    timeTaken: number;
+  }[];
+}
+
+export interface LiveTestResponse {
+  liveAccuracy: number;
+  nextPrediction: number;
+  message: string;
+  nextCorrection: string;
+}

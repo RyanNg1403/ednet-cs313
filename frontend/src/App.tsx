@@ -31,8 +31,8 @@ import {
   Area
 } from 'recharts';
 import { PARTS } from './data';
-import { DayData, AICoachingData } from './types';
-import { getDashboardData } from './services/aiService';
+import { DayData, AICoachingData, TaskItem, LiveTestResponse } from './types';
+import { getDashboardData, submitLiveTest } from './services/aiService';
 import { cn } from './lib/utils';
 
 export default function App() {
@@ -40,8 +40,19 @@ export default function App() {
   const [history, setHistory] = useState<DayData[] | null>(null);
   const [activeTab, setActiveTab] = useState<'today' | 'progress' | 'skills' | 'coaching'>('today');
   const [coaching, setCoaching] = useState<AICoachingData | null>(null);
+  const [focusTasks, setFocusTasks] = useState<TaskItem[]>([]);
+  const [focusDate, setFocusDate] = useState<string>('');
+  const [showLiveTest, setShowLiveTest] = useState(false);
+  const [liveTestResult, setLiveTestResult] = useState<LiveTestResponse | null>(null);
+  const [submittingTest, setSubmittingTest] = useState(false);
   const [loadingAI, setLoadingAI] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const IconMap: Record<string, React.ReactNode> = {
+    target: <Target size={18} className="text-status-danger" />,
+    history: <History size={18} className="text-status-warning" />,
+    brain: <Brain size={18} className="text-brand-primary" />
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +63,8 @@ export default function App() {
       const data = await getDashboardData(parseInt(userId));
       setHistory(data.history);
       setCoaching(data.coaching);
+      setFocusTasks(data.todayFocusTasks);
+      setFocusDate(data.focusDate);
     } catch (err: any) {
       setErrorMsg(err.message || 'Lỗi khi tải dữ liệu');
     } finally {
@@ -133,6 +146,8 @@ export default function App() {
       const data = await getDashboardData(parseInt(userId));
       setHistory(data.history);
       setCoaching(data.coaching);
+      setFocusTasks(data.todayFocusTasks);
+      setFocusDate(data.focusDate);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -256,28 +271,19 @@ export default function App() {
                     <section>
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-xl font-bold">Today's Focus</h2>
-                        <span className="text-xs font-medium text-text-tertiary">Tuesday, May 12</span>
+                        <span className="text-xs font-medium text-text-tertiary">{focusDate}</span>
                       </div>
                       <div className="space-y-4">
-                        <FocusTask 
-                          title={`Practice Part 5 (${weakParts[0]?.name})`}
-                          desc="Focus on grammar patterns observed in recent sessions."
-                          time="09:00 AM"
-                          icon={<Target size={18} className="text-status-danger" />}
-                          active
-                        />
-                        <FocusTask 
-                          title="Review Wrong Answers"
-                          desc="Check explanations for all mistakes from yesterday."
-                          time="11:30 AM"
-                          icon={<History size={18} className="text-status-warning" />}
-                        />
-                        <FocusTask 
-                          title="AI Concept Deep-dive"
-                          desc="Watch lecture on Part 7 strategies."
-                          time="02:00 PM"
-                          icon={<Brain size={18} className="text-brand-primary" />}
-                        />
+                        {focusTasks.map((t, idx) => (
+                          <FocusTask 
+                            key={idx}
+                            title={t.title}
+                            desc={t.desc}
+                            time={t.time}
+                            icon={IconMap[t.iconType] || IconMap['target']}
+                            active={t.active}
+                          />
+                        ))}
                       </div>
                     </section>
 
@@ -286,7 +292,7 @@ export default function App() {
                         <div className="flex-1">
                           <h3 className="text-xl font-bold mb-2">Ready for a quick sprint?</h3>
                           <p className="text-white/80 text-sm mb-4">You have 10 minutes. Our AI recommends a Part 6 texture completion dash to boost your reading speed.</p>
-                          <button className="bg-white text-brand-primary px-6 py-2 rounded-full font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg">
+                          <button onClick={() => setShowLiveTest(true)} className="bg-white text-brand-primary px-6 py-2 rounded-full font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg">
                             Start Sprint
                           </button>
                         </div>
@@ -533,6 +539,83 @@ export default function App() {
         <MobileNavItem icon={<Target size={20} />} active={activeTab === 'skills'} onClick={() => setActiveTab('skills')} />
         <MobileNavItem icon={<MessageSquare size={20} />} active={activeTab === 'coaching'} onClick={() => setActiveTab('coaching')} />
       </footer>
+
+      {/* Live Test Modal */}
+      {showLiveTest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative">
+            <button onClick={() => {setShowLiveTest(false); setLiveTestResult(null);}} className="absolute top-4 right-4 text-text-tertiary hover:text-text-primary">
+              ✕
+            </button>
+            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Zap className="text-brand-primary" /> Live Sprint Test</h2>
+            
+            {!liveTestResult ? (
+              <div className="space-y-6">
+                <p className="text-text-secondary text-sm">Answer these 3 quick questions to gauge your current state. We'll provide real-time AI feedback.</p>
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-bg-tertiary border border-border-primary">
+                    <p className="font-semibold mb-3">1. The new software update will be _____ next Monday.</p>
+                    <div className="flex gap-2">
+                      <button className="flex-1 py-2 rounded-lg bg-white border border-border-primary hover:bg-brand-primary hover:text-white transition-colors text-sm font-medium">installing</button>
+                      <button className="flex-1 py-2 rounded-lg bg-brand-primary text-white font-medium text-sm">installed</button>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  disabled={submittingTest}
+                  onClick={async () => {
+                    setSubmittingTest(true);
+                    try {
+                      const payload = {
+                        answers: [
+                          { questionId: 'q1', isCorrect: true, timeTaken: 12 },
+                          { questionId: 'q2', isCorrect: false, timeTaken: 8 },
+                          { questionId: 'q3', isCorrect: true, timeTaken: 15 }
+                        ]
+                      };
+                      const res = await submitLiveTest(parseInt(userId), payload);
+                      setLiveTestResult(res);
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setSubmittingTest(false);
+                    }
+                  }}
+                  className="w-full py-3 rounded-xl bg-brand-primary text-white font-bold disabled:opacity-70 flex justify-center items-center gap-2"
+                >
+                  {submittingTest ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Submit Test'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+                <div className="flex justify-between items-center mb-4">
+                  <div className="text-center p-4 bg-brand-primary/10 rounded-2xl flex-1 mr-2">
+                    <p className="text-xs font-bold text-text-tertiary uppercase">Live Score</p>
+                    <p className="text-3xl font-bold text-brand-primary">{(liveTestResult.liveAccuracy * 100).toFixed(0)}%</p>
+                  </div>
+                  <div className="text-center p-4 bg-status-success/10 rounded-2xl flex-1 ml-2">
+                    <p className="text-xs font-bold text-text-tertiary uppercase">Next Q Predict</p>
+                    <p className="text-3xl font-bold text-status-success">{(liveTestResult.nextPrediction * 100).toFixed(0)}%</p>
+                  </div>
+                </div>
+                <div className="bg-bg-tertiary p-5 rounded-2xl">
+                  <p className="text-text-primary text-sm leading-relaxed mb-4">
+                    <strong className="text-brand-primary block mb-1">AI Coach Says:</strong>
+                    {liveTestResult.message}
+                  </p>
+                  <p className="text-text-primary text-sm leading-relaxed">
+                    <strong className="text-status-warning block mb-1">Immediate Correction:</strong>
+                    {liveTestResult.nextCorrection}
+                  </p>
+                </div>
+                <button onClick={() => setShowLiveTest(false)} className="w-full py-3 rounded-xl bg-bg-tertiary text-text-primary font-bold hover:bg-border-primary transition-colors">
+                  Close & Continue
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
