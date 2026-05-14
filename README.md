@@ -73,14 +73,25 @@ Full reports with plots:
 
 ## Modeling
 
-Each team member trained models in their own Colab notebook on Drive. Source notebooks, trained models, and per-member methodology reports are linked below.
+Both members retrained on **2026-05-14** with a shared user-level train/test split (`train_test_split(unique_users, test_size=0.2, random_state=42)` on `kt4_features_ultimate.parquet`). All six models scored on the same 59,341 test users (within 1 user), each user's last response.
 
-| Author | Models | Best AUC | Source notebook | Trained models | Report |
-|---|---|---|---|---|---|
-| Phương | Random Forest, XGBoost | 0.7220 (XGB) | [`RandomForest_XGBoost_Models.ipynb`](https://drive.google.com/file/d/1PSdFzMcT8W18zOvOcG9p0Sk64Fyiogca/view?usp=sharing) | [RF `.pkl`](https://drive.google.com/file/d/1CA3BxvcUCKfWuU5EPipd1KsNAPS4Wsfl/view?usp=sharing) · [XGB `.json`](https://drive.google.com/file/d/1hVVKA0zQ_yKMwYaEOi9W7eQcb5JTdiXX/view?usp=sharing) · [folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) | [`phuong_random_forest_xgboost.md`](output/modeling/reports/phuong_random_forest_xgboost.md) |
-| Nguyễn | LightGBM, LSTM, 1D CNN | 0.7223 (LightGBM) | [Colab notebook](https://colab.research.google.com/drive/1d_wp7bnUi9LPoRd9xWUMmm_Rkfal6DNR?usp=drive_link) | [LightGBM `.pkl`](https://drive.google.com/file/d/1AynYV3uTakHkn8ljsFa6XpnO2Zx7O6Gh/view?usp=sharing) · [LSTM-Fair `.keras`](https://drive.google.com/file/d/1pt8N4jBP7MNRgEN7ffOcApPQCS1nWUwb/view?usp=sharing) · [LSTM-Chunk `.keras`](https://drive.google.com/file/d/17uVZRRkVK1rvGwHimBbteVnjx5GtJ0U_/view?usp=sharing) · [1D-CNN `.keras`](https://drive.google.com/file/d/1xgiK-z54v-KnlJm0-uFW5IWgqsvVcUiq/view?usp=sharing) · [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) | [`nguyen_lightgbm_lstm_cnn.md`](output/modeling/reports/nguyen_lightgbm_lstm_cnn.md) |
+| Author | Model | Plan B AUC | Source | Drive |
+|---|---|---|---|---|
+| Phương | XGBoost | **0.6871** | [notebook + folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) | `xgboost_final_model.json` |
+| Phương | Random Forest | 0.6831 | same | `random_forest_final_model.pkl` |
+| Nguyễn | LightGBM | 0.6812 | [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) + [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) | `lightgbm_final_model.pkl` |
+| Nguyễn | 1D-CNN-raw | 0.5992 | same | `ednet_1d_cnn_raw.keras` |
+| Nguyễn | LSTM-raw | 0.5732 | same | `ednet_lstm_raw.keras` |
+| Nguyễn | LSTM-11-features | 0.5011* | same | `ednet_lstm_11_features.keras` |
 
-Each report details the model's hyperparameters, train/test split, and metrics. Note that the two members used independent train/test splits, so their headline AUC numbers are not directly comparable across members (same input table, but only 20% test-row overlap).
+\* LSTM-11-features collapses to near-random AUC despite seeing the same 11 features as LightGBM — likely a training-time preprocessing bug; flagged for investigation. See [`cross_member_review.md`](output/modeling/reports/cross_member_review.md) §4.
+
+Per-member methodology, hyperparameters, and per-task notes:
+
+- [`phuong_random_forest_xgboost.md`](output/modeling/reports/phuong_random_forest_xgboost.md)
+- [`nguyen_lightgbm_lstm_cnn.md`](output/modeling/reports/nguyen_lightgbm_lstm_cnn.md)
+- [`cross_member_review.md`](output/modeling/reports/cross_member_review.md) — apples-to-apples comparison
+- [`data_and_splits_per_model.md`](output/modeling/reports/data_and_splits_per_model.md) — exact train/test splits per model
 
 ## Setup
 

@@ -1,133 +1,86 @@
 # EdNet-KT4: LightGBM, LSTM & 1D-CNN Modeling Report
 
 **Author**: Nguyễn (Võ Thế Nguyễn)
-**Drive folder (all artifacts)**: [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) — Colab notebook + 4 trained model files (see [§7](#7-artifact-status))
-**Notebook**: [Colab](https://colab.research.google.com/drive/1d_wp7bnUi9LPoRd9xWUMmm_Rkfal6DNR?usp=drive_link) — local copy at `modeling/nguyen/nguyen_colab.ipynb`
+**Drive folder (all artifacts)**: [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) — files dated 2026-05-14
+**v2 training notebook**: [Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) — 5 cells, this is the notebook that produced the current model files
 
 ## Overview
 
-Four models were trained to predict `target_is_correct`, spanning gradient boosting and two deep-learning architectures:
+Four models, all retrained on **2026-05-14** under the team-agreed user-level split:
 
-1. **LightGBM** on the engineered 11-feature table (this is the headline result).
-2. **LSTM "Fair Comparison"** on the same 11-feature table but reshaped into per-student sequences.
-3. **LSTM (Chunking)** on the raw `kt4_preprocessed.parquet` with only 4 minimal columns, trained via chunked loop.
-4. **1D CNN (Chunking)** on the same raw 4-column input as #3.
+1. **LightGBM** on the 11-feature engineered table (chunked incremental training).
+2. **LSTM-11-features** — new architecture, sees the same 11 engineered features as LightGBM, last-target supervision.
+3. **LSTM-raw** — same architecture as the previous "LSTM-Chunking", retrained on the agreed split.
+4. **1D-CNN-raw** — same architecture as the previous "1D-CNN-Chunking", retrained.
 
-All four are re-evaluated against a common held-out user sample in the notebook's final benchmark cell.
+The deep models are all **last-target** supervised: each user's sequence (last up to 100 responses) produces one prediction (the correctness of the very last response). `MAX_LEN=100` so users with more than 100 responses have their early history truncated away.
 
-In addition to model training, the notebook also implements **two upstream DuckDB feature-engineering pipelines** (cells 0 and 3) that produce `kt4_features_1.parquet` and `kt4_features_ultimate.parquet` on the author's Drive. These differ from the in-repo `feature_engineering/generate_features.py` (see [§7](#7-artifact-status)).
+The notebook also contains an upstream feature-engineering pass that produces `kt4_features_ultimate.parquet` (18 columns, 23,308,702 rows). This file is byte-identical to Phương's `kt4_features_1.parquet` — same MD5, same data.
 
 ---
 
-## 1. Upstream Feature Engineering (DuckDB)
+## 1. Train/Test Split (cell 0 of v2 notebook)
 
-The notebook contains two DuckDB pipelines that read `kt4_preprocessed.parquet` and emit feature tables:
-
-- **Cell 0 → `kt4_features_1.parquet`** (per the `OUTPUT_FILE` variable in cell source): 13-column output projecting Long-term history, SAKT-style concept attention (`PARTITION BY user_id, part`), Recent-20-question window, Learning strategy (adaptive/explanation/lecture), and Session fatigue (60-min rolling).
-- **Cell 3 → `kt4_features_ultimate.parquet`** (per `OUTPUT_FILE`): 18-column output that adds a leakage-corrected question difficulty (`q_attempts` / `q_incorrect` windows), separate listening (parts 1-4) and reading (parts 5-7) accuracy tracks, and an answer-changes column.
-
-All cumulative features use `ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING` to prevent same-row leakage.
-
-> **Note on filename vs. content.** The file Phương consumes — *named* `kt4_features_1.parquet` in her Drive folder — has 18 columns matching the Cell 3 outer SELECT, not the 13 columns of the Cell 0 SELECT. Schema and row count (23,308,702) are identical to what Cell 3 should produce. So in practice both members train on the same Cell 3 output; the filename is misleading. Either the file was renamed before being shared with Phương, or Cell 0 was edited after the original file was generated.
-
-## 2. LightGBM (Headline Model)
-
-### Hyperparameter search
-
-`Optuna` over 50 trials (cell 2), maximizing AUC on a 20M-row sample of `kt4_features_1.parquet`. Search space:
-
-| Parameter | Range |
-|---|---|
-| `learning_rate` | 0.01 – 0.2 (log-uniform) |
-| `num_leaves` | 31 – 256 |
-| `max_depth` | 6 – 15 |
-| `min_data_in_leaf` | 100 – 2000 |
-| `feature_fraction` | 0.6 – 1.0 |
-
-Inner training loop: `num_boost_round=300`, `early_stopping(stopping_rounds=20)`.
-
-### Final training (cell 6)
-
-Input: `kt4_features_ultimate.parquet`, 11 features (same list as Phương's):
-```
-feat_question_difficulty, feat_current_part_accuracy, feat_answer_changes,
-feat_overall_accuracy, feat_reading_accuracy, feat_recent_accuracy,
-feat_is_rapid_guess, part, feat_total_attempts,
-feat_listening_accuracy, feat_explanation_ratio
+```python
+df_users = pd.read_parquet(FILE_ULTIMATE, columns=['user_id'])
+all_users = df_users['user_id'].unique()
+train_val_users, test_users = train_test_split(all_users, test_size=0.2, random_state=42)
+train_users, valid_users = train_test_split(train_val_users, test_size=0.1, random_state=42)
+np.save(SAVE_DIR + 'train_users.npy', train_users)
+np.save(SAVE_DIR + 'valid_users.npy', valid_users)
+np.save(SAVE_DIR + 'test_users.npy', test_users)
 ```
 
-Split: `train_test_split(X, y, test_size=0.2, random_state=42)` (random, **not** stratified, **not** grouped — see methodology note in [§5](#5-methodology-divergences)).
+Result: **213,624 train / 23,737 valid / 59,341 test users**. All four models load these `.npy` files, so they share the split byte-identically. The valid users are used for early-stopping monitoring inside the deep training; they are *not* in the test set.
 
-Best params from "Optuna Trial 2", loaded explicitly:
+This is the team-canonical user split and produces test_users identical to `modeling/retrain/split.py`.
+
+## 2. LightGBM (cell 1)
+
+### Training pattern
+
+Chunked incremental training on the 11-feature engineered table:
+
+- 6 chunks of ~40,000 train users each
+- 30 boost rounds per chunk
+- `init_model=gbm` chained between chunks → resulting model has **180 trees total**
+- Validation set: the 23,737 held-out valid users, monitored after each chunk
+
+### Hyperparameters
 
 | Parameter | Value |
 |---|---|
 | `objective` | `binary` |
 | `metric` | `auc` |
 | `boosting_type` | `gbdt` |
-| `learning_rate` | 0.1379900896401586 |
-| `num_leaves` | 201 |
-| `max_depth` | 9 |
-| `min_data_in_leaf` | 249 |
-| `feature_fraction` | 0.9942082330434625 |
-| `num_boost_round` | 500 |
-| `early_stopping_rounds` | 30 |
+| `learning_rate` | 0.05 |
+| `num_leaves` | 63 |
+| `max_depth` | 8 |
+| `feature_fraction` | 0.8 |
+| `device_type` | `cpu` |
+| `num_iterations` | 30 (per chunk) |
 
-### Test-set metrics
+### Plan B test-set metrics
 
-| Metric | Value |
-|---|---|
-| AUC-ROC | **0.7223** |
-| Accuracy | 0.6668 (66.68%) |
-
-Saved to `lightgbm_final_model.pkl` on Drive (`DataMining_Project/`).
-
-## 3. LSTM — "Fair Comparison" (cell 10)
-
-A sequence model trained on the *same* engineered feature table as LightGBM, to isolate the effect of architecture vs. features.
-
-### Sequence construction
-
-- Per-student sequences sorted by `user_id`, `timestamp`.
-- Features used per timestep: `part / 7.0`, `feat_question_difficulty`, `feat_is_rapid_guess`, `log1p(feat_answer_changes)`, and a **time-shifted** correctness signal `[0] + target_is_correct[:-1]` (only past labels visible).
-- Padding: `pad_sequences(..., maxlen=100, padding='post', truncating='pre')`. The target `y` is the *last* response in each student's sequence.
-- Final tensor shape: `(N_users, 100, 5)`.
-- Split: `train_test_split(X_3D, y, test_size=0.2, random_state=42)`.
-
-### Architecture
-
-```
-Input(shape=(100, 5))
-Masking(mask_value=0.0)
-LSTM(128, return_sequences=False)
-BatchNormalization()
-Dropout(0.3)
-Dense(64, activation='relu')
-Dropout(0.2)
-Dense(1, activation='sigmoid')
-```
-
-Optimizer: `Adam(learning_rate=0.001)`. Loss: `binary_crossentropy`.
-
-### Test-set metrics
+Scored on the **last response per test user** (59,341 predictions):
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | 0.7035 |
-| Accuracy | 0.6473 (64.73%) |
+| **AUC-ROC** | **0.6812** |
+| Accuracy | 0.6330 |
+| Precision | 0.6381 |
+| Recall | 0.5205 |
+| F1-Score | 0.5733 |
+| Log Loss | 0.6368 |
 
-Saved to `ednet_lstm_fair_model.keras`.
+> The earlier "AUC 0.7223" reported in older versions of this notebook was on a leaky row-level split. The current honest number is 0.6812 — about 0.04 AUC lower, exactly the typical leakage-removal magnitude in Knowledge Tracing literature.
 
-## 4. LSTM (Chunking) and 1D CNN (Chunking) — Raw-feature variants
+## 3. LSTM-11-features (cell 2) — NEW architecture
 
-Both models stream the full `kt4_preprocessed.parquet` in user-grouped chunks of 80,000 students per chunk, training one epoch's worth of weights per chunk and looping for 10 outer epochs. Only 4 raw columns are used: `part`, `time_since_prev` (log1p-normalized), `hour`, and a shifted `is_correct`. Sentinel value `-99.0` is used for padding so the `Masking` layer can ignore it.
-
-Split: **at the user level** — `train_test_split(all_users, test_size=0.2, random_state=42)` — which avoids the train/test leakage present in the LightGBM and LSTM-Fair runs.
-
-### LSTM-Chunking architecture (cell 12)
+A fresh sequence model that consumes the same 11 engineered features as LightGBM, reshaped per-timestep:
 
 ```
-Input(shape=(100, 4))
+Input(shape=(100, 11))
 Masking(mask_value=-99.0)
 LSTM(128, return_sequences=False)
 BatchNormalization()
@@ -137,68 +90,115 @@ Dropout(0.2)
 Dense(1, activation='sigmoid')
 ```
 
-Optimizer: `Adam(learning_rate=0.001)`. Training: 10 outer epochs × shuffled chunks, `batch_size=2048`.
+### Per-feature scaling at training time
 
-### 1D-CNN-Chunking architecture (cell 14)
+Most engineered features are already in `[0, 1]` and used as-is. Three are rescaled before being fed to the LSTM:
+
+- `part`: divided by 7
+- `feat_answer_changes`: `log1p(x) / 5`
+- `feat_total_attempts`: `log1p(x) / 10`
+
+### Training pattern
+
+5 outer epochs, each looping through 8 chunks of 30,000 train users. `model.fit()` is called once per chunk with `validation_data=valid` and `epochs=1`. No early stopping.
+
+### Plan B test-set metrics — anomalous
+
+| Metric | Value |
+|---|---|
+| **AUC-ROC** | **0.5011** (anomalous; see below) |
+| Accuracy | 0.4805 |
+| Precision | 0.4765 |
+| Recall | 0.9803 |
+| F1-Score | 0.6413 |
+| Log Loss | 0.7462 |
+
+**This model is essentially predicting "correct" for nearly every user** (Recall=0.98, Precision=0.48). The Plan B evaluation script applies the exact same per-feature scaling that Nguyễn's own cell-4 evaluation cell uses, so this isn't a scoring bug — the model itself is the issue.
+
+Most plausible cause: a training-time preprocessing inconsistency that emerged when the architecture was extended from the previous 5-feature version. Worth investigating before relying on this model. Given LightGBM achieves 0.6812 on the same 11 features, an LSTM with comparable capacity should be able to reach at least 0.65.
+
+## 4. LSTM-raw (cell 3) — same as previous "LSTM-Chunking", retrained
+
+Same architecture as before, retrained on the agreed split:
 
 ```
 Input(shape=(100, 4))
 Masking(mask_value=-99.0)
-Conv1D(filters=64, kernel_size=3, padding='same')
-BatchNormalization() -> ReLU() -> MaxPooling1D(pool_size=2)
-Conv1D(filters=128, kernel_size=5, padding='same')
-BatchNormalization() -> ReLU()
-GlobalAveragePooling1D()
-Dropout(0.3)
-Dense(64, activation='relu')
-Dropout(0.2)
+LSTM(128, return_sequences=False)
+BatchNormalization() → Dropout(0.3)
+Dense(64, activation='relu') → Dropout(0.2)
 Dense(1, activation='sigmoid')
 ```
 
-Same optimizer, batch size, and 10-epoch chunking loop as the LSTM-Chunking model.
+Features per timestep: `part/7`, `log1p(time_since_prev)/15`, `hour/24`, shifted past `is_correct`. Reads from `kt4_preprocessed.parquet`, filtered to action_type=respond by checking that `is_correct ∈ {0, 1}`.
 
-### Test-set metrics
+Training pattern: 5 outer epochs × 6 chunks of 40,000 train users; `model.fit(..., epochs=1)` per chunk.
 
-| Model | AUC-ROC | Accuracy |
+### Plan B test-set metrics
+
+| Metric | Value |
+|---|---|
+| AUC-ROC | **0.5732** |
+| Accuracy | 0.5449 |
+| Precision | 0.6652 |
+| Recall | 0.0792 |
+| F1-Score | 0.1416 |
+| Log Loss | 0.9818 |
+
+The 4 raw features don't include `feat_question_difficulty` (the dominant signal for the trees), so this model is structurally limited to a much lower AUC than the trees.
+
+## 5. 1D-CNN-raw (cell 3) — same as previous "1D-CNN-Chunking", retrained
+
+```
+Input(shape=(100, 4))
+Masking(mask_value=-99.0)              # silently dropped at the first Conv1D
+Conv1D(64, 3, padding='same')
+BatchNormalization() → ReLU() → MaxPooling1D(2)
+Conv1D(128, 5, padding='same')
+BatchNormalization() → ReLU()
+GlobalAveragePooling1D() → Dropout(0.3)
+Dense(64, activation='relu') → Dropout(0.2)
+Dense(1, activation='sigmoid')
+```
+
+Same 4 raw features as LSTM-raw, same input parquet, same training loop. The `Masking` layer is architecturally bypassed at the first Conv1D (Conv1D doesn't propagate masks), but the trained weights are empirically padding-invariant on in-distribution inputs (verified previously).
+
+### Plan B test-set metrics
+
+| Metric | Value |
+|---|---|
+| AUC-ROC | **0.5992** |
+| Accuracy | 0.5879 |
+| Precision | 0.6020 |
+| Recall | 0.3840 |
+| F1-Score | 0.4689 |
+| Log Loss | 0.7395 |
+
+Slightly outperforms LSTM-raw on the same input — a small but consistent reversal from the earlier (leaky) benchmark where they were tied at AUC 0.6124.
+
+## 6. Cross-model summary (Plan B benchmark)
+
+All four of Nguyễn's models scored on the same 59,341 test users, last response per user:
+
+| Model | AUC | Notes |
 |---|---|---|
-| LSTM (Chunking) | 0.6124 | N/A (not recorded) |
-| 1D CNN (Chunking) | 0.6124 | N/A (not recorded) |
+| LightGBM | **0.6812** | Best of the four |
+| 1D-CNN-raw | 0.5992 | Best deep model on raw features |
+| LSTM-raw | 0.5732 | |
+| LSTM-11-features | 0.5011 | **Anomalously broken — needs debugging** |
 
-Saved to `ednet_lstm_chunking.keras` and `ednet_1d_cnn_chunking.keras`.
-
-## 5. Methodology Divergences
-
-| Concern | Detail |
-|---|---|
-| Split strategy | The LightGBM and LSTM-Fair runs use a **row-level random split** (`train_test_split(X, y, test_size=0.2, random_state=42)`) — interactions from the same student land in both train and test, which inflates metrics. The LSTM/CNN chunking variants split at the user level (`train_test_split(all_users, ...)`) and so do not have within-user leakage. |
-| Common test set for benchmark | The final benchmark (cell 17) re-evaluates all four models on a **30,000-user sample** drawn from the same `test_users` produced by `train_test_split(all_users, ..., random_state=42)`. This is internally consistent across the four models in this notebook but is **not** the same test set used by Phương's RF / XGBoost notebook. |
-| Upstream feature pipeline | The notebook regenerates the feature table from `kt4_preprocessed.parquet` rather than reusing the in-repo `feature_engineering/generate_features.py`. The resulting features overlap heavily by name but were produced by a different script with slightly different windowing definitions. |
-
-These are flagged for awareness, not as blocking issues — they affect how the in-notebook metrics should be interpreted, not whether the models work.
-
-## 6. Internal Benchmark (cell 17)
-
-The notebook's own summary, re-scored on the 30k-user common test sample:
-
-| Model | Dataset | AUC (Test) | Accuracy (Test) | Notes |
-|---|---|---|---|---|
-| **LightGBM** | `kt4_features_ultimate` | **0.7223** | **66.68%** | Best result; relies on the optimized feature set. |
-| LSTM (Fair Comparison) | `kt4_features_ultimate` | 0.7035 | 64.73% | Same features as LightGBM, different architecture. |
-| LSTM (Chunking) | `kt4_preprocessed` (raw) | 0.6124 | N/A | Raw features only; demonstrates chunked training on limited RAM. |
-| 1D CNN (Chunking) | `kt4_preprocessed` (raw) | 0.6124 | N/A | Same raw input as LSTM-Chunking. |
-
-The notebook's stated conclusion: feature engineering dominates architecture choice on this problem — LightGBM on engineered features beats a sequence model on the same features, which in turn beats deep models on raw features.
+For the cross-member comparison (vs Phương's RF / XGB), see [`cross_member_review.md`](cross_member_review.md).
 
 ## 7. Artifact Status
 
-All four trained model files are available in the author's [Drive folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing). Per-file links:
+All artifacts are in [Nguyễn's Drive folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing), all dated 2026-05-14:
 
-| Artifact | Size | Status |
-|---|---|---|
-| Training notebook (Colab) | 293 KB | Available — [in-folder Colab link](https://colab.research.google.com/drive/1d_wp7bnUi9LPoRd9xWUMmm_Rkfal6DNR?usp=drive_link) (same file also reachable via the original [Colab link](https://colab.research.google.com/drive/1FZ0_wIyGTxOGMTkpO-GwlQpTDU7rFUbD?usp=sharing); both IDs resolve to identical content by MD5). Local copy at `modeling/nguyen/nguyen_colab.ipynb`. |
-| [`lightgbm_final_model.pkl`](https://drive.google.com/file/d/1AynYV3uTakHkn8ljsFa6XpnO2Zx7O6Gh/view?usp=sharing) | 11.1 MB | Available |
-| [`ednet_lstm_fair_model.keras`](https://drive.google.com/file/d/1pt8N4jBP7MNRgEN7ffOcApPQCS1nWUwb/view?usp=sharing) | 969 KB | Available |
-| [`ednet_lstm_chunking.keras`](https://drive.google.com/file/d/17uVZRRkVK1rvGwHimBbteVnjx5GtJ0U_/view?usp=sharing) | 963 KB | Available |
-| [`ednet_1d_cnn_chunking.keras`](https://drive.google.com/file/d/1xgiK-z54v-KnlJm0-uFW5IWgqsvVcUiq/view?usp=sharing) | 668 KB | Available |
-| `feature_importance_barchart.png` | — | **Not in folder.** Generated inside the notebook (cell 5) and saved to `DataMining_Project/feature_importance_barchart.png` on the author's Drive; not yet shared in the public folder. |
-| `kt4_features_ultimate.parquet` (upstream input consumed by LightGBM & LSTM-Fair) | — | **Not in folder under this name.** But its content (18 cols, 23.3M rows, Cell 3 schema) is available as `kt4_features_1.parquet` in Phương's [Drive folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing). Needed to reproduce training but not to use the saved models. |
+| Artifact | Status |
+|---|---|
+| Training notebook | Available — [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) (5 cells, byte-different from the older `nguyen_colab.ipynb` that's also still in the folder) |
+| `lightgbm_final_model.pkl` | Available (1.29 MB, 180 trees) |
+| `ednet_lstm_11_features.keras` | Available (1.0 MB, input `(100, 11)`) — **functionally broken, see §3** |
+| `ednet_lstm_raw.keras` | Available (962 KB, input `(100, 4)`) |
+| `ednet_1d_cnn_raw.keras` | Available (668 KB, input `(100, 4)`) |
+| `kt4_features_ultimate.parquet` (upstream input) | Available (1 GB, byte-identical to Phương's `kt4_features_1.parquet`) |
+| `train_users.npy` / `valid_users.npy` / `test_users.npy` | In `Splits/` subfolder on Drive (not pulled locally; reconstructible deterministically from `split.py`) |

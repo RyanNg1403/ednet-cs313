@@ -1,23 +1,25 @@
 # EdNet-KT4: Random Forest & XGBoost Modeling Report
 
 **Author**: Phương
-**Notebook**: [`RandomForest_XGBoost_Models.ipynb`](https://drive.google.com/file/d/1PSdFzMcT8W18zOvOcG9p0Sk64Fyiogca/view?usp=sharing) (Google Drive)
-**Drive folder**: [models & artifacts](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing)
+**Notebook**: [`RandomForest_XGBoost_Models_fixed.ipynb`](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) (Drive folder)
+**Drive folder**: [models & artifacts](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) — files dated 2026-05-14
 
 ## Overview
 
-Two tree-based binary classifiers were trained to predict `target_is_correct` on the engineered EdNet-KT4 feature table: a **Random Forest** (scikit-learn) and a **gradient-boosted XGBoost**. Both models share the same 11-feature input, target, and train/test split, so the evaluation is directly comparable.
+Two tree-based binary classifiers, both retrained on **2026-05-14** with a **user-level train/test split** to remove the row-level leakage from the original (May 12) version. The 11-feature input, hyperparameters, and overall pipeline are otherwise unchanged from the prior version.
 
-**Input**: `kt4_features_1.parquet` (23,308,702 rows) — [Google Drive](https://drive.google.com/file/d/1RUVv9P6SZ0kb1M4sCr0jSH6KQnAXDYmv/view?usp=sharing)
-**Output 1**: `random_forest_final_model.pkl` (~154 MB) — [Google Drive](https://drive.google.com/file/d/1CA3BxvcUCKfWuU5EPipd1KsNAPS4Wsfl/view?usp=sharing)
-**Output 2**: `xgboost_final_model.json` (~18 MB) — [Google Drive](https://drive.google.com/file/d/1hVVKA0zQ_yKMwYaEOi9W7eQcb5JTdiXX/view?usp=sharing)
-**Plots**: [RF evaluation](https://drive.google.com/file/d/1FY6zNtw_EW9BrnMd9poJ7azUBIjB0e-_/view?usp=sharing) · [XGBoost evaluation](https://drive.google.com/file/d/16fYYjXbzuABCyrds9tMfwqFG60tLhLjY/view?usp=sharing) · [Benchmark comparison](https://drive.google.com/file/d/1NBNxL-SrVbipIAYgeQ2ViukUH9xsWoz8/view?usp=sharing)
+**Input**: `kt4_features_1.parquet` (23,308,702 rows; byte-identical to Nguyễn's `kt4_features_ultimate.parquet`)
+**Output 1**: `random_forest_final_model.pkl` (~155 MB)
+**Output 2**: `xgboost_final_model.json` (~16.4 MB)
+**Plots**: `random_forest_evaluation.png`, `xgboost_evaluation.png`, `benchmark_comparison.png`
+
+All artifacts in the linked Drive folder.
 
 ---
 
 ## 1. Input Features
 
-The same 11-feature set used by both models:
+Same 11-feature subset for both models:
 
 ```
 feat_question_difficulty, feat_current_part_accuracy, feat_answer_changes,
@@ -26,67 +28,57 @@ feat_is_rapid_guess, part, feat_total_attempts,
 feat_listening_accuracy, feat_explanation_ratio
 ```
 
-Missing values are filled with 0 via `df.fillna(0)`. No additional scaling is applied (tree models are scale-invariant).
+`fillna(0)` applied; no scaling (tree-invariant).
 
-## 2. Train/Test Split
+## 2. Train/Test Split — user-level (no leakage)
+
+The notebook (cell 3) performs the split as:
 
 ```python
-train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+unique_users = df['user_id'].unique()
+np.random.seed(42)
+np.random.shuffle(unique_users)
+n_test_users = int(len(unique_users) * 0.2)
+test_users  = set(unique_users[:n_test_users])
+train_users = set(unique_users[n_test_users:])
 ```
 
-- **Train**: 18,646,961 rows (80%)
-- **Test**: 4,661,741 rows (20%)
-- Class ratio preserved: 56.87% correct / 43.13% incorrect
+Result: **237,361 train users / 59,340 test users**. No user appears in both sides.
 
-> **Methodology note.** This is a **row-level** split, not a user-level split (`GroupShuffleSplit` by `user_id`). With ~296K students and a row-level shuffle, the same student's interactions land in both training and test sets — verified by simulation: 83.34% of users appear on both sides; only 0.67% of test users are truly held out. This inflates evaluation metrics relative to a user-held-out split.
+This is *equivalent within 1 user* to the team-canonical split (`sklearn.model_selection.train_test_split(unique_users, test_size=0.2, random_state=42)` → 237,360 / 59,341). All 59,340 of Phương's test users are inside the canonical 59,341-user test set; the 1-user difference is a rounding artifact.
+
+> **Difference from the prior version**: the May 12 training used `train_test_split(X, y, ..., stratify=y)` on rows, which leaked ~99% of users across train and test. That problem is now resolved.
 
 ## 3. Random Forest
 
 ### Hyperparameters
 
-| Parameter | Value | Rationale (per notebook) |
+| Parameter | Value | Notes |
 |---|---|---|
-| `n_estimators` | 300 | 300 decision trees |
-| `max_depth` | 12 | Cap tree depth |
-| `min_samples_leaf` | 50 | Minimum 50 samples per leaf (anti-overfit) |
-| `max_features` | `'sqrt'` | sqrt(n_features) per split |
-| `class_weight` | `'balanced'` | Compensate for class imbalance |
+| `n_estimators` | 300 | unchanged from prior version |
+| `max_depth` | 12 | unchanged; binding for all 300 trees |
+| `min_samples_leaf` | 50 | unchanged; rarely binding because of depth cap |
+| `max_features` | `'sqrt'` | unchanged |
+| `class_weight` | `'balanced'` | unchanged |
 | `n_jobs` | -1 | All CPU cores |
 | `random_state` | 42 | |
 
-### Training
+### Plan B test-set metrics
 
-- Wall-clock time: **313.80 minutes** (~5.2 h) on Colab CPU (`n_jobs=-1`, observed 2 concurrent workers).
-
-### Test-set metrics
+Scored on the **last response per test user** (59,341 predictions, the team-agreed Plan B evaluation, run from `evaluate_planb.py`):
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.7146** |
-| Accuracy | 0.6520 (65.20%) |
-| Precision | 0.7203 |
-| Recall | 0.6343 |
-| F1-Score | 0.6746 |
-| Log Loss | 0.6183 |
+| **AUC-ROC** | **0.6831** |
+| Accuracy | 0.6251 |
+| Precision | 0.6797 |
+| Recall | 0.3944 |
+| F1-Score | 0.4991 |
+| Log Loss | 0.6427 |
 
-### Plots produced
-
-- Feature importance (Mean Decrease in Impurity)
-- ROC curve
-- Confusion matrix
-- Predicted-probability distribution by class
-
-Saved together as `random_forest_evaluation.png` (linked above).
+> **What Phương's own evaluation cell reports** (cell 8) is different: she evaluates on *all rows* of test users (~4.6M predictions), not last-row-only. Those numbers exist in her notebook output but are on a different prediction task and aren't directly comparable to the deep models. The Plan B metrics above are the apples-to-apples ones.
 
 ## 4. XGBoost
-
-### Data preparation
-
-The training and test matrices are converted to `xgb.DMatrix` (with `feature_names` retained) for memory efficiency. `scale_pos_weight` is computed from the training class counts:
-
-```
-scale_pos_weight = neg_count / pos_count = 0.7585
-```
 
 ### Hyperparameters
 
@@ -94,76 +86,36 @@ scale_pos_weight = neg_count / pos_count = 0.7585
 |---|---|
 | `objective` | `binary:logistic` |
 | `eval_metric` | `auc` |
-| `tree_method` | `hist` (histogram-based; LightGBM-style) |
+| `tree_method` | `hist` |
 | `device` | `cpu` |
 | `learning_rate` | 0.1 |
 | `max_depth` | 9 |
 | `min_child_weight` | 50 |
 | `subsample` | 0.85 |
 | `colsample_bytree` | 0.9942 |
-| `scale_pos_weight` | 0.7585 |
+| `scale_pos_weight` | computed from training class counts |
 | `seed` | 42 |
 | `num_boost_round` | 500 |
 | `early_stopping_rounds` | 30 |
 
-### Training
+These are unchanged from the May 12 version. (The `colsample_bytree=0.9942` value is still the same Optuna-derived value Nguyễn used for his earlier LightGBM; Phương borrowed it without re-tuning. With the new user-level split, this isn't strictly principled but it's the value she used and the model trained around it.)
 
-- Wall-clock time: **85.37 minutes**.
-- Best iteration: **499** (early stopping never triggered — the model was still improving when the round budget ran out).
-- Best test AUC during boosting: 0.7220.
-
-Train/test AUC trajectory (selected):
-
-| Round | Train AUC | Test AUC |
-|---|---|---|
-| 0 | 0.7075 | 0.7070 |
-| 100 | 0.7218 | 0.7204 |
-| 250 | 0.7243 | 0.7215 |
-| 499 | 0.7270 | 0.7220 |
-
-The narrow train–test gap (~0.005 AUC) indicates the model is not overfitting at this depth/min-child-weight setting.
-
-### Test-set metrics
+### Plan B test-set metrics
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.7220** |
-| Accuracy | 0.6580 (65.80%) |
-| Precision | 0.7242 |
-| Recall | 0.6438 |
-| F1-Score | 0.6816 |
-| Log Loss | 0.6116 |
+| **AUC-ROC** | **0.6871** |
+| Accuracy | 0.6304 |
+| Precision | 0.6786 |
+| Recall | 0.4176 |
+| F1-Score | 0.5170 |
+| Log Loss | 0.6392 |
 
-### Plots produced
+XGBoost narrowly outperforms RF on the same test set (Δ = 0.004 AUC), but this gap is within the noise of a single 59,341-prediction evaluation and shouldn't be interpreted as a definitive ranking.
 
-- Feature importance by Information Gain (also weight and cover computed)
-- Learning curve (AUC vs. boosting rounds for train & test, with best-iteration marker)
-- ROC curve
-- Confusion matrix
-- Predicted-probability distribution by class
+## 5. Reproducibility Notes
 
-Saved together as `xgboost_evaluation.png` (linked above).
-
-## 5. Benchmark Comparison
-
-A consolidated comparison plot (`benchmark_comparison.png`) overlays:
-
-- Bar chart of AUC-ROC, Accuracy, F1-Score (RF vs. XGBoost)
-- ROC curves overlaid
-- Normalized feature importance side-by-side
-
-| Model | AUC-ROC | Accuracy | F1-Score | Log Loss | Train Time |
-|---|---|---|---|---|---|
-| Random Forest | 0.7146 | 0.6520 | 0.6746 | 0.6183 | 313.80 min |
-| XGBoost | **0.7220** | **0.6580** | **0.6816** | **0.6116** | 85.37 min |
-
-XGBoost is uniformly better across every metric and trains **~3.7× faster** than the Random Forest on the same data and machine.
-
-A LightGBM reference (AUC 0.7223, Accuracy 66.68%) from the team's prior LightGBM run is cited in the comparison bar chart but is not re-trained inside this notebook — see [Nguyễn's report](nguyen_lightgbm_lstm_cnn.md).
-
-## 6. Reproducibility Notes
-
-- All randomness pinned to `random_state=42` / `seed=42`.
-- Data path inside notebook is hard-coded to `/content/drive/MyDrive/Colab Notebooks/data mining/`.
-- The feature table consumed (`kt4_features_1.parquet`) was produced by Nguyễn's Colab DuckDB pipeline — schema matches Cell 3 of his notebook (18 columns, the "ultimate" pipeline) despite the filename suggesting Cell 0. It is **not** the output of the in-repo `feature_engineering/generate_features.py` (which produces a different 15-column file, `kt4_features.parquet`).
-- Re-running the Random Forest cell sequentially takes ~5 h of compute; the saved `.pkl` is provided to skip retraining.
+- All randomness pinned to `random_state=42` / `seed=42` / `np.random.seed(42)`.
+- Data path inside notebook is `/content/drive/MyDrive/Colab Notebooks/data mining/kt4_features_1.parquet` (Phương's local copy of the canonical engineered table).
+- The canonical engineered parquet (also distributed by Nguyễn as `kt4_features_ultimate.parquet`) is byte-identical: same MD5, same 18-column schema, same 23,308,702 rows.
+- Saved models are loadable locally and were re-scored from `evaluate_planb.py` to produce the metrics above.
