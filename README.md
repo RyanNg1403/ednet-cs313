@@ -75,14 +75,25 @@ Full reports with plots:
 
 Both members retrained on **2026-05-14** with a shared user-level train/test split (`train_test_split(unique_users, test_size=0.2, random_state=42)` on `kt4_features_ultimate.parquet`). All six models scored on the same 59,341 test users (within 1 user), each user's last response.
 
-| Author | Model | Test AUC | Source | Drive |
-|---|---|---|---|---|
-| Phương | XGBoost | **0.6871** | [notebook + folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) | `xgboost_final_model.json` |
-| Phương | Random Forest | 0.6831 | same | `random_forest_final_model.pkl` |
-| Nguyễn | LightGBM | 0.6812 | [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) + [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) | `lightgbm_final_model.pkl` |
-| Nguyễn | 1D-CNN-raw | 0.5992 | same | `ednet_1d_cnn_raw.keras` |
-| Nguyễn | LSTM-raw | 0.5732 | same | `ednet_lstm_raw.keras` |
-| Nguyễn | LSTM-11-features | 0.5011* | same | `ednet_lstm_11_features.keras` |
+Test-set metrics (sorted by AUC, all on the same 59,341 predictions):
+
+| Model | AUC | Accuracy | Precision | Recall | F1 | LogLoss |
+|---|---|---|---|---|---|---|
+| **Phương XGBoost** | **0.6871** | 0.6304 | 0.6786 | 0.4176 | 0.5170 | 0.6392 |
+| Phương Random Forest | 0.6831 | 0.6251 | 0.6797 | 0.3944 | 0.4991 | 0.6427 |
+| Nguyễn LightGBM | 0.6812 | 0.6330 | 0.6381 | 0.5205 | 0.5733 | 0.6368 |
+| Nguyễn 1D-CNN-raw | 0.5992 | 0.5879 | 0.6020 | 0.3840 | 0.4689 | 0.7395 |
+| Nguyễn LSTM-raw | 0.5732 | 0.5449 | 0.6652 | 0.0792 | 0.1416 | 0.9818 |
+| Nguyễn LSTM-11-features | 0.5011* | 0.4805 | 0.4765 | 0.9803 | 0.6413 | 0.7462 |
+
+Drive locations: [Phương folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) (`random_forest_final_model.pkl`, `xgboost_final_model.json`) · Nguyễn [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) and [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) (`lightgbm_final_model.pkl`, `ednet_lstm_11_features.keras`, `ednet_lstm_raw.keras`, `ednet_1d_cnn_raw.keras`).
+
+Visualisations in [`output/modeling/plots/`](output/modeling/plots/):
+
+- `phuong_xgboost_evaluation.png` — Phương's XGBoost figure from her training run. The only genuinely training-dynamics panel in the project is the learning curve (train + test AUC vs boosting rounds 0–499) inside this composite. The other panels (feature importance, ROC, confusion matrix, prediction distribution) are post-hoc evaluation. Nguyễn's notebook contains no plotting cells.
+- `tree_models_test.png` — test-set comparison for RF + XGB + LightGBM: grouped AUC/Accuracy/F1 bars + overlaid ROC curves.
+- `deep_models_test.png` — same layout, for LSTM-11-features + LSTM-raw + 1D-CNN-raw.
+- `all_models_test.png` — same layout, all six models together.
 
 \* LSTM-11-features collapses to near-random AUC despite seeing the same 11 features as LightGBM — likely a training-time preprocessing bug; flagged for investigation. See [`cross_member_review.md`](output/modeling/reports/cross_member_review.md) §4.
 
