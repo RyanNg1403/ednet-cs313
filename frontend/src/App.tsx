@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  BarChart3, 
-  Calendar, 
-  Target, 
-  Brain, 
-  Settings, 
-  Search, 
-  Bell, 
+import {
+  BarChart3,
+  Calendar,
+  Target,
+  Brain,
+  Settings,
+  Search,
+  Bell,
   ChevronRight,
   TrendingUp,
   BookOpen,
@@ -17,7 +17,13 @@ import {
   Zap,
   CheckCircle2,
   Clock,
-  LayoutDashboard
+  LayoutDashboard,
+  Trophy,
+  Plus,
+  Minus,
+  Loader2,
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -32,13 +38,21 @@ import {
 } from 'recharts';
 import { PARTS } from './data';
 import { DayData, AICoachingData, TaskItem, LiveTestResponse } from './types';
-import { getDashboardData, submitLiveTest } from './services/aiService';
+import {
+  getDashboardData,
+  submitLiveTest,
+  getDailyChallengeModels,
+  runDailyChallenge,
+  type DailyChallengeModelInfo,
+  type DailyChallengeResponse,
+  type DailyChallengeResult,
+} from './services/aiService';
 import { cn } from './lib/utils';
 
 export default function App() {
   const [userId, setUserId] = useState<string>('');
   const [history, setHistory] = useState<DayData[] | null>(null);
-  const [activeTab, setActiveTab] = useState<'today' | 'progress' | 'skills' | 'coaching'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'progress' | 'skills' | 'coaching' | 'challenge'>('today');
   const [coaching, setCoaching] = useState<AICoachingData | null>(null);
   const [focusTasks, setFocusTasks] = useState<TaskItem[]>([]);
   const [focusDate, setFocusDate] = useState<string>('');
@@ -186,11 +200,17 @@ export default function App() {
               active={activeTab === 'skills'} 
               onClick={() => setActiveTab('skills')} 
             />
-            <SidebarItem 
-              icon={<MessageSquare size={20} />} 
-              label="AI Tutor" 
-              active={activeTab === 'coaching'} 
-              onClick={() => setActiveTab('coaching')} 
+            <SidebarItem
+              icon={<MessageSquare size={20} />}
+              label="AI Tutor"
+              active={activeTab === 'coaching'}
+              onClick={() => setActiveTab('coaching')}
+            />
+            <SidebarItem
+              icon={<Trophy size={20} />}
+              label="Daily Challenge"
+              active={activeTab === 'challenge'}
+              onClick={() => setActiveTab('challenge')}
             />
           </nav>
         </div>
@@ -528,6 +548,17 @@ export default function App() {
                 )}
               </motion.div>
             )}
+
+            {activeTab === 'challenge' && (
+              <motion.div
+                key="challenge"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+              >
+                <DailyChallengePanel userId={parseInt(userId)} />
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       </main>
@@ -538,6 +569,7 @@ export default function App() {
         <MobileNavItem icon={<BarChart3 size={20} />} active={activeTab === 'progress'} onClick={() => setActiveTab('progress')} />
         <MobileNavItem icon={<Target size={20} />} active={activeTab === 'skills'} onClick={() => setActiveTab('skills')} />
         <MobileNavItem icon={<MessageSquare size={20} />} active={activeTab === 'coaching'} onClick={() => setActiveTab('coaching')} />
+        <MobileNavItem icon={<Trophy size={20} />} active={activeTab === 'challenge'} onClick={() => setActiveTab('challenge')} />
       </footer>
 
       {/* Live Test Modal */}
@@ -650,7 +682,7 @@ function MobileNavItem({ icon, active, onClick }: { icon: React.ReactNode, activ
         active ? "text-brand-primary bg-brand-primary/10" : "text-text-tertiary"
       )}
     >
-      {React.cloneElement(icon as React.ReactElement, { size: 24 })}
+      {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 24 })}
     </button>
   );
 }
@@ -702,6 +734,483 @@ function FocusTask({ title, desc, time, icon, active = false }: { title: string,
       <div className="self-center">
         <ChevronRight size={16} className={cn("transition-transform group-hover:translate-x-1", active ? "text-brand-primary" : "text-text-tertiary opacity-0")} />
       </div>
+    </div>
+  );
+}
+
+// ── Daily Challenge ────────────────────────────────────────────────────────
+
+const PART_LABELS: Record<number, string> = {
+  1: 'Photographs', 2: 'Q-Response', 3: 'Conversations', 4: 'Short Talks',
+  5: 'Grammar', 6: 'Text Completion', 7: 'Reading Comp.',
+};
+
+const MODEL_LABELS: Record<string, string> = {
+  'xgboost': 'XGBoost',
+  'random-forest': 'Random Forest',
+  'lightgbm': 'LightGBM',
+  'lstm-raw': 'LSTM (raw)',
+  '1d-cnn-raw': '1D-CNN (raw)',
+};
+
+function DailyChallengePanel({ userId }: { userId: number }) {
+  const [models, setModels] = useState<DailyChallengeModelInfo[]>([]);
+  const [mode, setMode] = useState<'total' | 'per-part'>('total');
+  const [totalN, setTotalN] = useState<number>(20);
+  const [perPart, setPerPart] = useState<Record<number, number>>({ 5: 5, 6: 3, 7: 2 });
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [result, setResult] = useState<DailyChallengeResponse | null>(null);
+  const [showCompare, setShowCompare] = useState(false);
+  const [selectedExtra, setSelectedExtra] = useState<Set<string>>(() => new Set<string>());
+
+  React.useEffect(() => {
+    getDailyChallengeModels()
+      .then(r => setModels(r.models))
+      .catch(e => setError(e?.message ?? 'Failed to fetch models'));
+  }, []);
+
+  const defaultModel = models.find(m => m.isDefault)?.id ?? 'xgboost';
+  const totalFromPerPart = useMemo(
+    () => (Object.values(perPart) as number[]).reduce((s, n) => s + n, 0),
+    [perPart]
+  );
+
+  const submit = async (modelIds: string[]) => {
+    setRunning(true);
+    setError('');
+    try {
+      const body: Parameters<typeof runDailyChallenge>[1] = {
+        models: modelIds,
+        seed: userId,  // deterministic across re-runs for the same user
+      };
+      if (mode === 'total') body.totalN = totalN;
+      else body.perPart = perPart;
+      const r = await runDailyChallenge(userId, body);
+      setResult(r);
+    } catch (e: any) {
+      setError(e?.message ?? 'Run failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const onRun = () => {
+    setShowCompare(false);
+    setSelectedExtra(new Set([defaultModel]));
+    submit([defaultModel]);
+  };
+
+  const onCompare = () => {
+    const ids: string[] = Array.from(selectedExtra);
+    if (ids.length === 0) return;
+    submit(ids);
+  };
+
+  const updatePart = (part: number, delta: number) => {
+    setPerPart(prev => {
+      const next = { ...prev };
+      const v = Math.max(0, (next[part] ?? 0) + delta);
+      if (v === 0) delete next[part];
+      else next[part] = v;
+      return next;
+    });
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center gap-3">
+        <Trophy className="text-brand-primary" size={28} />
+        <div>
+          <h2 className="text-2xl font-bold">Daily Challenge</h2>
+          <p className="text-sm text-text-secondary">
+            Pick how many questions you plan to answer today. Our 5 trained models autoregressively
+            predict — and sum — your per-question success probability.
+          </p>
+        </div>
+      </div>
+
+      {/* Configuration */}
+      <section className="bento-card space-y-6">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMode('total')}
+            className={cn(
+              'px-4 py-2 rounded-xl text-sm font-semibold transition-colors',
+              mode === 'total' ? 'bg-brand-primary text-white' : 'bg-bg-tertiary text-text-secondary'
+            )}
+          >
+            Total questions
+          </button>
+          <button
+            onClick={() => setMode('per-part')}
+            className={cn(
+              'px-4 py-2 rounded-xl text-sm font-semibold transition-colors',
+              mode === 'per-part' ? 'bg-brand-primary text-white' : 'bg-bg-tertiary text-text-secondary'
+            )}
+          >
+            Per-part breakdown
+          </button>
+        </div>
+
+        {mode === 'total' ? (
+          <div className="flex items-end gap-4">
+            <div className="flex-1 max-w-xs">
+              <label className="block text-xs font-bold uppercase text-text-tertiary mb-2">
+                Total questions
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={totalN}
+                onChange={e => setTotalN(Math.max(1, Math.min(200, parseInt(e.target.value) || 0)))}
+                className="w-full px-4 py-3 rounded-xl border border-border-primary bg-bg-tertiary focus:outline-none focus:ring-2 focus:ring-brand-primary text-lg font-semibold"
+              />
+            </div>
+            <p className="text-xs text-text-tertiary pb-3">
+              Distributed across parts using your historical part frequencies.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            {[1, 2, 3, 4, 5, 6, 7].map(p => (
+              <div key={p} className="bento-card p-4 space-y-2">
+                <p className="text-[10px] font-bold uppercase text-text-tertiary">
+                  Part {p}
+                </p>
+                <p className="text-xs text-text-secondary truncate">{PART_LABELS[p]}</p>
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => updatePart(p, -1)}
+                    className="w-7 h-7 rounded-lg bg-bg-tertiary hover:bg-brand-primary hover:text-white flex items-center justify-center"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <span className="font-bold text-lg w-8 text-center">{perPart[p] ?? 0}</span>
+                  <button
+                    onClick={() => updatePart(p, 1)}
+                    className="w-7 h-7 rounded-lg bg-bg-tertiary hover:bg-brand-primary hover:text-white flex items-center justify-center"
+                  >
+                    <Plus size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-border-primary pt-4">
+          <p className="text-sm text-text-secondary">
+            Today's challenge: <strong className="text-text-primary">{mode === 'total' ? totalN : totalFromPerPart}</strong> questions
+            <span className="text-text-tertiary"> · default model: {MODEL_LABELS[defaultModel] ?? defaultModel}</span>
+          </p>
+          <button
+            onClick={onRun}
+            disabled={running || (mode === 'per-part' && totalFromPerPart === 0)}
+            className="bg-brand-primary text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50 hover:bg-brand-primary/90 transition-colors"
+          >
+            {running ? <Loader2 size={18} className="animate-spin" /> : <Trophy size={18} />}
+            {running ? 'Predicting...' : 'Run'}
+          </button>
+        </div>
+      </section>
+
+      {error && (
+        <div className="bento-card border-status-danger/30 bg-status-danger/5 text-status-danger text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Results */}
+      {result && (
+        <section className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {(Object.entries(result.results) as Array<[string, DailyChallengeResult]>).map(([modelId, r]) => (
+              <ModelResultCard
+                key={modelId}
+                modelId={modelId}
+                expected={r.expectedCorrect}
+                n={r.n}
+                probs={r.perQuestionProbs}
+                parts={result.questionsParts as number[]}
+                isDefault={modelId === defaultModel}
+              />
+            ))}
+            {(Object.entries(result.errors ?? {}) as Array<[string, string]>).map(([modelId, err]) => (
+              <div key={modelId} className="bento-card border-status-danger/30 bg-status-danger/5">
+                <p className="font-bold text-sm">{MODEL_LABELS[modelId] ?? modelId}</p>
+                <p className="text-xs text-status-danger mt-2">Failed: {err}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Compare-other-models panel */}
+          <div className="bento-card space-y-4">
+            <button
+              onClick={() => setShowCompare(s => !s)}
+              className="flex items-center gap-2 text-sm font-semibold text-brand-primary"
+            >
+              <Layers size={16} />
+              {showCompare ? 'Hide model picker' : 'Choose other models to compare'}
+            </button>
+            {showCompare && (
+              <div className="space-y-4 pt-2 border-t border-border-primary">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {models.map(m => {
+                    const checked = selectedExtra.has(m.id);
+                    return (
+                      <label
+                        key={m.id}
+                        className={cn(
+                          'flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors',
+                          !m.ready && 'opacity-50 cursor-not-allowed',
+                          checked
+                            ? 'border-brand-primary bg-brand-primary/5'
+                            : 'border-border-primary bg-bg-tertiary'
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!m.ready}
+                          checked={checked}
+                          onChange={e => {
+                            setSelectedExtra(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(m.id);
+                              else next.delete(m.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold">{MODEL_LABELS[m.id] ?? m.id}</p>
+                          {!m.ready && (
+                            <p className="text-[10px] text-status-danger">{m.loadError ?? 'unavailable'}</p>
+                          )}
+                          {m.isDefault && (
+                            <p className="text-[10px] text-text-tertiary">default</p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={onCompare}
+                  disabled={running || selectedExtra.size === 0}
+                  className="bg-brand-secondary text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
+                >
+                  {running ? <Loader2 size={16} className="animate-spin" /> : <Layers size={16} />}
+                  Compare ({selectedExtra.size})
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="text-xs text-text-tertiary space-y-1">
+            <p>
+              <strong>How:</strong> for each simulated question we recompute the user's running aggregates
+              (overall / part / recent accuracy, attempts count) using the model's predicted probability as
+              a soft outcome, then feed that back as input to the next question. Sum of per-q probabilities = expected correct.
+            </p>
+            <p>
+              Recent-accuracy window: last {result.notes.recentAccuracyWindow} questions.
+              Question difficulty sampled from your own historical part-conditional distribution.
+              {result.notes.excludedModels?.length ? ` Excluded: ${(result.notes.excludedModels as string[]).join(', ')}.` : null}
+            </p>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ModelResultCard({
+  modelId, expected, n, probs, parts, isDefault,
+}: {
+  modelId: string; expected: number; n: number; probs: number[]; parts: number[]; isDefault: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const pct = n > 0 ? (expected / n) * 100 : 0;
+
+  // Aggregate per-part: count of questions and expected correct (sum of probs)
+  // for each part that appears in this run. Sorted by part number.
+  const perPart = useMemo(() => {
+    const acc: Record<number, { count: number; expected: number }> = {};
+    for (let i = 0; i < probs.length; i++) {
+      const p = parts[i];
+      if (!acc[p]) acc[p] = { count: 0, expected: 0 };
+      acc[p].count += 1;
+      acc[p].expected += probs[i];
+    }
+    return Object.entries(acc)
+      .map(([part, v]) => ({
+        part: Number(part),
+        count: v.count,
+        expected: v.expected,
+        pct: v.count > 0 ? (v.expected / v.count) * 100 : 0,
+      }))
+      .sort((a, b) => a.part - b.part);
+  }, [probs, parts]);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => setExpanded(s => !s)}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setExpanded(s => !s);
+        }
+      }}
+      className={cn(
+        'bento-card space-y-4 cursor-pointer transition-shadow hover:shadow-md',
+        isDefault && 'border-brand-primary/40 ring-1 ring-brand-primary/20'
+      )}
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase text-text-tertiary">{MODEL_LABELS[modelId] ?? modelId}</p>
+          {isDefault && <span className="text-[10px] text-brand-primary font-bold uppercase">default</span>}
+        </div>
+        <div className="flex items-start gap-3">
+          <div className="text-right">
+            <p className="text-3xl font-bold">{expected.toFixed(1)}</p>
+            <p className="text-xs text-text-tertiary">/ {n}</p>
+          </div>
+          <ChevronDown
+            size={18}
+            className={cn(
+              'text-text-tertiary mt-2 transition-transform',
+              expanded && 'rotate-180'
+            )}
+          />
+        </div>
+      </div>
+      <div className="w-full h-2 bg-bg-tertiary rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.min(100, pct)}%` }}
+          transition={{ duration: 0.6 }}
+          className="h-full bg-brand-primary rounded-full"
+        />
+      </div>
+      <p className="text-[11px] text-text-secondary">{pct.toFixed(1)}% expected accuracy</p>
+
+      {/* Strip chart of per-q probs */}
+      <div className="pt-3 border-t border-border-primary">
+        <p className="text-[10px] font-bold uppercase text-text-tertiary mb-2">Per-question probability</p>
+        <div className="flex items-end gap-[2px] h-16">
+          {probs.map((p, i) => (
+            <div
+              key={i}
+              title={`Q${i + 1} (Part ${parts[i]}): ${(p * 100).toFixed(1)}%`}
+              style={{ height: `${Math.max(4, p * 100)}%` }}
+              className={cn(
+                'flex-1 rounded-sm transition-colors',
+                p >= 0.7 ? 'bg-status-success' : p >= 0.5 ? 'bg-brand-primary' : 'bg-status-danger'
+              )}
+            />
+          ))}
+        </div>
+        <p className="text-[10px] text-text-tertiary mt-2 text-center">
+          {expanded ? 'Click to collapse' : 'Click for per-part breakdown'}
+        </p>
+      </div>
+
+      {/* Expandable detail section */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="detail"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={e => e.stopPropagation()}
+            className="overflow-hidden"
+          >
+            <div className="pt-4 border-t border-border-primary space-y-4">
+              {/* Per-part breakdown */}
+              <div>
+                <p className="text-[10px] font-bold uppercase text-text-tertiary mb-3">
+                  Per-part breakdown
+                </p>
+                <div className="space-y-2">
+                  {perPart.map(row => (
+                    <div key={row.part} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold">
+                          Part {row.part}{' '}
+                          <span className="text-text-tertiary font-normal">
+                            ({PART_LABELS[row.part]})
+                          </span>
+                        </span>
+                        <span className="font-mono">
+                          <strong>{row.expected.toFixed(2)}</strong>
+                          <span className="text-text-tertiary"> / {row.count}</span>
+                          <span className="text-text-tertiary ml-2">
+                            {row.pct.toFixed(0)}%
+                          </span>
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(100, row.pct)}%` }}
+                          transition={{ duration: 0.4 }}
+                          className={cn(
+                            'h-full rounded-full',
+                            row.pct >= 70 ? 'bg-status-success' :
+                            row.pct >= 50 ? 'bg-brand-primary' : 'bg-status-danger'
+                          )}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Per-question detail list */}
+              <div>
+                <p className="text-[10px] font-bold uppercase text-text-tertiary mb-2">
+                  Per-question detail
+                </p>
+                <div className="max-h-56 overflow-y-auto pr-1 space-y-1 text-xs">
+                  {probs.map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-3 py-1 border-b border-border-primary/40 last:border-0"
+                    >
+                      <span className="text-text-tertiary font-mono w-6 text-right">
+                        Q{i + 1}
+                      </span>
+                      <span className="bg-bg-tertiary px-2 py-0.5 rounded text-[10px] font-semibold w-12 text-center">
+                        Part {parts[i]}
+                      </span>
+                      <div className="flex-1 h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${Math.min(100, p * 100)}%` }}
+                          className={cn(
+                            'h-full rounded-full',
+                            p >= 0.7 ? 'bg-status-success' :
+                            p >= 0.5 ? 'bg-brand-primary' : 'bg-status-danger'
+                          )}
+                        />
+                      </div>
+                      <span className="font-mono w-10 text-right tabular-nums">
+                        {(p * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

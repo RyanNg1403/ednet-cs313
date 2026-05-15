@@ -24,6 +24,58 @@ export async function getDashboardData(userId: number): Promise<DashboardData> {
   }
 }
 
+export interface DailyChallengeModelInfo {
+  id: string;
+  ready: boolean;
+  loadError?: string | null;
+  isDefault: boolean;
+}
+
+export interface DailyChallengeResult {
+  expectedCorrect: number;
+  n: number;
+  perQuestionProbs: number[];
+}
+
+export interface DailyChallengeResponse {
+  plan: Record<number, number>;
+  questionsParts: number[];
+  results: Record<string, DailyChallengeResult>;
+  errors: Record<string, string>;
+  notes: {
+    recentAccuracyWindow: number;
+    softProbabilityFeedback: boolean;
+    excludedModels: string[];
+  };
+}
+
+export async function getDailyChallengeModels(): Promise<{ models: DailyChallengeModelInfo[] }> {
+  const r = await fetch(`${API_BASE}/daily-challenge/models`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+export async function runDailyChallenge(
+  userId: number,
+  body: {
+    totalN?: number;
+    perPart?: Record<number, number>;
+    models: string[];
+    seed?: number;
+  },
+): Promise<DailyChallengeResponse> {
+  const r = await fetch(`${API_BASE}/daily-challenge/${userId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err?.detail ?? `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
 export async function submitLiveTest(userId: number, payload: any): Promise<any> {
   try {
     const response = await fetch(`${API_BASE}/live-test/${userId}`, {

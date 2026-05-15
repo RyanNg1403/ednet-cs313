@@ -5,15 +5,55 @@ from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import polars as pl
+import pyarrow.parquet as pq
 import numpy as np
 import xgboost as xgb
-from groq import Groq
 from dotenv import load_dotenv
 
+import challenge as challenge_mod
+
 load_dotenv()
+
+
+def _resolve_llm_provider() -> Tuple[Optional[str], Optional[object], Optional[str]]:
+    """Pick an LLM provider based on which API key is configured.
+
+    Order: OpenAI > Groq. Returns (provider_name, client, model) or (None, None, None).
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if openai_key and openai_key != "your_api_key_here":
+        from openai import OpenAI
+        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return "openai", OpenAI(api_key=openai_key), model
+
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key and groq_key != "your_api_key_here":
+        from groq import Groq
+        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        return "groq", Groq(api_key=groq_key), model
+
+    return None, None, None
+
+
+def _llm_json_completion(prompt: str) -> dict:
+    """Call the active LLM provider in JSON mode and return the parsed object."""
+    provider, client, model = _resolve_llm_provider()
+    if client is None:
+        raise RuntimeError("No LLM provider configured (set OPENAI_API_KEY or GROQ_API_KEY)")
+
+    completion = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=1,
+        max_tokens=1024,
+        top_p=1,
+        response_format={"type": "json_object"},
+        stream=False,
+    )
+    return json.loads(completion.choices[0].message.content)
 
 app = FastAPI(title="EdNet AI Coaching Backend")
 
@@ -28,6 +68,7 @@ app.add_middleware(
 # Global variables to hold data and models
 df_features = None
 xgb_model = None
+loaded_challenge_models: challenge_mod.LoadedModels = challenge_mod.LoadedModels()
 
 # Model features expected by XGBoost
 MODEL_FEATURES = [
@@ -39,11 +80,13 @@ MODEL_FEATURES = [
 
 @app.on_event("startup")
 async def startup_event():
-    global df_features, xgb_model
+    global df_features, xgb_model, loaded_challenge_models
     logging.info("Loading dataset...")
     try:
-        # Load the features parquet file
-        df_features = pl.read_parquet("data/kt4_features_1.parquet")
+        # Load via pyarrow then wrap in polars — sidesteps a polars 1.x parquet
+        # decoding bug ("validity mask length must match the number of values")
+        # triggered by this dataset's float columns.
+        df_features = pl.from_arrow(pq.read_table("data/kt4_features_1.parquet"))
         # Ensure timestamp is numeric
         df_features = df_features.with_columns(pl.col('timestamp').cast(pl.Float64, strict=False))
         # Sort by user_id and timestamp for easier processing
@@ -60,12 +103,20 @@ async def startup_event():
     except Exception as e:
         logging.error(f"Failed to load model: {e}")
 
-    # Configure Groq
-    api_key = os.getenv("GROQ_API_KEY")
-    if api_key and api_key != "your_api_key_here":
-        logging.info("Groq API key configured.")
+    logging.info("Loading Daily Challenge models (5 models)...")
+    loaded_challenge_models = challenge_mod.load_all_models("models")
+    ready = [n for n in challenge_mod.SUPPORTED_MODELS if loaded_challenge_models.get(n) is not None]
+    logging.info(f"Daily Challenge models ready: {ready}")
+    if loaded_challenge_models.load_errors:
+        for n, err in loaded_challenge_models.load_errors.items():
+            logging.warning(f"  {n}: {err}")
+
+    # Configure LLM provider
+    provider, _, model = _resolve_llm_provider()
+    if provider:
+        logging.info(f"LLM provider configured: {provider} (model={model}).")
     else:
-        logging.warning("GROQ_API_KEY not set or invalid. AI features might fail if key is not in environment.")
+        logging.warning("No LLM API key set (OPENAI_API_KEY or GROQ_API_KEY). AI coaching will use fallback responses.")
 
 
 def generate_mock_history(user_data):
@@ -243,8 +294,8 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
         "error": False
     }
     
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key or api_key == "your_api_key_here":
+    provider, _, _ = _resolve_llm_provider()
+    if provider is None:
         fallback["error"] = True
         return fallback
 
@@ -278,27 +329,11 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
     """
     
     try:
-        client = Groq()
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-              {
-                "role": "user",
-                "content": prompt
-              }
-            ],
-            temperature=1,
-            max_tokens=1024,
-            top_p=1,
-            response_format={"type": "json_object"},
-            stream=False,
-        )
-        response_text = completion.choices[0].message.content
-        data = json.loads(response_text)
+        data = _llm_json_completion(prompt)
         data["error"] = False
         return data
     except Exception as e:
-        logging.error(f"Groq API Error: {e}")
+        logging.error(f"LLM API Error in coaching: {e}")
         fallback["error"] = True
         return fallback
 
@@ -349,32 +384,58 @@ async def submit_live_test(user_id: int, payload: LiveTestSubmission):
     """
     
     try:
-        client = Groq()
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-              {
-                "role": "user",
-                "content": prompt
-              }
-            ],
-            temperature=1,
-            max_tokens=1024,
-            top_p=1,
-            response_format={"type": "json_object"},
-            stream=False,
-        )
-        response_text = completion.choices[0].message.content
-        data = json.loads(response_text)
-        return data
+        return _llm_json_completion(prompt)
     except Exception as e:
-        logging.error(f"Groq API Error in Live Test: {e}")
+        logging.error(f"LLM API Error in Live Test: {e}")
         return {
             "liveAccuracy": live_acc,
             "nextPrediction": pred_prob,
             "message": "Great effort on the live test! The AI is currently resting, but keep up the good work.",
             "nextCorrection": "Review the questions you just missed."
         }
+
+class DailyChallengeRequest(BaseModel):
+    totalN: Optional[int] = None
+    perPart: Optional[Dict[int, int]] = None
+    models: List[str] = [challenge_mod.DEFAULT_MODEL]
+    seed: Optional[int] = None
+
+
+@app.get("/api/daily-challenge/models")
+async def list_daily_challenge_models():
+    """Tell the frontend which models are usable right now."""
+    out = []
+    for name in challenge_mod.SUPPORTED_MODELS:
+        out.append({
+            "id": name,
+            "ready": loaded_challenge_models.get(name) is not None,
+            "loadError": loaded_challenge_models.load_errors.get(name),
+            "isDefault": name == challenge_mod.DEFAULT_MODEL,
+        })
+    return {"models": out}
+
+
+@app.post("/api/daily-challenge/{user_id}")
+async def post_daily_challenge(user_id: int, payload: DailyChallengeRequest):
+    if df_features is None:
+        raise HTTPException(status_code=500, detail="Dataset not loaded")
+
+    user_data_pl = df_features.filter(pl.col("user_id") == user_id)
+    if len(user_data_pl) == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        return challenge_mod.run_daily_challenge(
+            user_history_polars=user_data_pl,
+            total_n=payload.totalN,
+            per_part=payload.perPart,
+            models=payload.models or [challenge_mod.DEFAULT_MODEL],
+            loaded=loaded_challenge_models,
+            seed=payload.seed,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn
