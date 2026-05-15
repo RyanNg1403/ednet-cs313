@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   BarChart3,
@@ -23,7 +23,8 @@ import {
   Minus,
   Loader2,
   Layers,
-  ChevronDown
+  ChevronDown,
+  ChevronLeft
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -37,7 +38,7 @@ import {
   Area
 } from 'recharts';
 import { PARTS } from './data';
-import { DayData, AICoachingData, TaskItem, LiveTestResponse } from './types';
+import { DayData, AICoachingData, TaskItem, LiveTestPayload, LiveTestResponse } from './types';
 import {
   getDashboardData,
   submitLiveTest,
@@ -49,6 +50,68 @@ import {
 } from './services/aiService';
 import { cn } from './lib/utils';
 
+type LiveQuestion = {
+  id: string;
+  part: number;
+  prompt: string;
+  options: string[];
+  correctIndex: number;
+  seenBefore: boolean;
+};
+
+type LiveAnswerState = {
+  questionId: string;
+  part: number;
+  seenBefore: boolean;
+  selectedIndex: number | null;
+  answerChanges: number;
+  timeTaken: number;
+  isCorrect: boolean;
+  startedAt: number | null;
+};
+
+const RAPID_GUESS_SECONDS = 8;
+
+const LIVE_TEST_QUESTIONS: LiveQuestion[] = [
+  {
+    id: 'q5-017',
+    part: 5,
+    prompt: 'The new software update will be _____ next Monday.',
+    options: ['installing', 'installed', 'install'],
+    correctIndex: 1,
+    seenBefore: true,
+  },
+  {
+    id: 'q6-044',
+    part: 6,
+    prompt: 'Please review the attached report and submit your feedback _____ 3 PM.',
+    options: ['at', 'by', 'during'],
+    correctIndex: 1,
+    seenBefore: false,
+  },
+  {
+    id: 'q7-102',
+    part: 7,
+    prompt: 'What is the main purpose of the memo?',
+    options: ['To announce a new policy', 'To report quarterly sales', 'To schedule interviews'],
+    correctIndex: 0,
+    seenBefore: true,
+  },
+];
+
+function createInitialLiveAnswers(): LiveAnswerState[] {
+  return LIVE_TEST_QUESTIONS.map((q) => ({
+    questionId: q.id,
+    part: q.part,
+    seenBefore: q.seenBefore,
+    selectedIndex: null,
+    answerChanges: 0,
+    timeTaken: 0,
+    isCorrect: false,
+    startedAt: null,
+  }));
+}
+
 export default function App() {
   const [userId, setUserId] = useState<string>('');
   const [history, setHistory] = useState<DayData[] | null>(null);
@@ -56,11 +119,114 @@ export default function App() {
   const [coaching, setCoaching] = useState<AICoachingData | null>(null);
   const [focusTasks, setFocusTasks] = useState<TaskItem[]>([]);
   const [focusDate, setFocusDate] = useState<string>('');
+  const [weeklyDifficulty, setWeeklyDifficulty] = useState<{ easy: number; medium: number; hard: number; total: number } | null>(null);
+  const [behaviorCounts, setBehaviorCounts] = useState<{ rapidGuesses: number; sessionFatigue: number } | null>(null);
   const [showLiveTest, setShowLiveTest] = useState(false);
   const [liveTestResult, setLiveTestResult] = useState<LiveTestResponse | null>(null);
   const [submittingTest, setSubmittingTest] = useState(false);
+  const [liveCurrentIdx, setLiveCurrentIdx] = useState(0);
+  const [liveAnswers, setLiveAnswers] = useState<LiveAnswerState[]>(() => createInitialLiveAnswers());
   const [loadingAI, setLoadingAI] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  const liveCurrentQuestion = LIVE_TEST_QUESTIONS[liveCurrentIdx];
+  const liveCurrentAnswer = liveAnswers[liveCurrentIdx];
+
+  const liveMistakeSignals = useMemo(() => {
+    const answered = liveAnswers.filter((a) => a.selectedIndex !== null);
+    const rapidGuesses = answered.filter((a) => a.timeTaken > 0 && a.timeTaken <= RAPID_GUESS_SECONDS).length;
+    const answerChanges = answered.reduce((sum, a) => sum + a.answerChanges, 0);
+    const repeatedWrong = answered.filter((a) => a.seenBefore && !a.isCorrect).length;
+    const avgTimeSeconds = answered.length
+      ? Math.round(answered.reduce((sum, a) => sum + a.timeTaken, 0) / answered.length)
+      : 0;
+
+    return { rapidGuesses, answerChanges, repeatedWrong, avgTimeSeconds, answeredCount: answered.length };
+  }, [liveAnswers]);
+
+  useEffect(() => {
+    if (!showLiveTest || liveTestResult) return;
+    setLiveAnswers((prev) => {
+      if (!prev[liveCurrentIdx] || prev[liveCurrentIdx].startedAt !== null) return prev;
+      const next = [...prev];
+      next[liveCurrentIdx] = { ...next[liveCurrentIdx], startedAt: Date.now() };
+      return next;
+    });
+  }, [showLiveTest, liveCurrentIdx, liveTestResult]);
+
+  const startLiveTest = () => {
+    setShowLiveTest(true);
+    setLiveTestResult(null);
+    setLiveCurrentIdx(0);
+    setLiveAnswers(createInitialLiveAnswers());
+  };
+
+  const closeLiveTest = () => {
+    setShowLiveTest(false);
+    setLiveTestResult(null);
+    setLiveCurrentIdx(0);
+    setLiveAnswers(createInitialLiveAnswers());
+    setSubmittingTest(false);
+  };
+
+  const selectLiveOption = (optionIndex: number) => {
+    setLiveAnswers((prev) => {
+      const next = [...prev];
+      const current = next[liveCurrentIdx];
+      if (!current) return prev;
+
+      const now = Date.now();
+      const startedAt = current.startedAt ?? now;
+      const isAnswerChanged = current.selectedIndex !== null && current.selectedIndex !== optionIndex;
+      const isCorrect = optionIndex === LIVE_TEST_QUESTIONS[liveCurrentIdx].correctIndex;
+
+      next[liveCurrentIdx] = {
+        ...current,
+        startedAt,
+        selectedIndex: optionIndex,
+        answerChanges: current.answerChanges + (isAnswerChanged ? 1 : 0),
+        timeTaken: Math.max(1, Math.round((now - startedAt) / 1000)),
+        isCorrect,
+      };
+      return next;
+    });
+  };
+
+  const submitCurrentLiveSession = async () => {
+    setSubmittingTest(true);
+    try {
+      const payload: LiveTestPayload = {
+        answers: liveAnswers
+          .filter((a) => a.selectedIndex !== null)
+          .map((a, idx) => ({
+            questionId: a.questionId,
+            isCorrect: a.isCorrect,
+            timeTaken: a.timeTaken,
+            answerChanges: a.answerChanges,
+            part: a.part,
+            seenBefore: a.seenBefore,
+            selectedOption: LIVE_TEST_QUESTIONS[idx].options[a.selectedIndex as number],
+            correctOption: LIVE_TEST_QUESTIONS[idx].options[LIVE_TEST_QUESTIONS[idx].correctIndex],
+          })),
+      };
+
+      const res = await submitLiveTest(parseInt(userId), payload);
+      setLiveTestResult(res);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSubmittingTest(false);
+    }
+  };
+
+  const goToNextLiveQuestion = async () => {
+    if (!liveCurrentAnswer || liveCurrentAnswer.selectedIndex === null || submittingTest) return;
+    if (liveCurrentIdx < LIVE_TEST_QUESTIONS.length - 1) {
+      setLiveCurrentIdx((v) => v + 1);
+      return;
+    }
+    await submitCurrentLiveSession();
+  };
 
   const IconMap: Record<string, React.ReactNode> = {
     target: <Target size={18} className="text-status-danger" />,
@@ -79,6 +245,8 @@ export default function App() {
       setCoaching(data.coaching);
       setFocusTasks(data.todayFocusTasks);
       setFocusDate(data.focusDate);
+      setWeeklyDifficulty(data.weeklyDifficulty ?? null);
+      setBehaviorCounts(data.behaviorCounts ?? null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Lỗi khi tải dữ liệu');
     } finally {
@@ -162,6 +330,8 @@ export default function App() {
       setCoaching(data.coaching);
       setFocusTasks(data.todayFocusTasks);
       setFocusDate(data.focusDate);
+      setWeeklyDifficulty(data.weeklyDifficulty ?? null);
+      setBehaviorCounts(data.behaviorCounts ?? null);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -312,7 +482,7 @@ export default function App() {
                         <div className="flex-1">
                           <h3 className="text-xl font-bold mb-2">Ready for a quick sprint?</h3>
                           <p className="text-white/80 text-sm mb-4">You have 10 minutes. Our AI recommends a Part 6 texture completion dash to boost your reading speed.</p>
-                          <button onClick={() => setShowLiveTest(true)} className="bg-white text-brand-primary px-6 py-2 rounded-full font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg">
+                          <button onClick={startLiveTest} className="bg-white text-brand-primary px-6 py-2 rounded-full font-semibold text-sm hover:bg-white/90 transition-colors shadow-lg">
                             Start Sprint
                           </button>
                         </div>
@@ -412,10 +582,46 @@ export default function App() {
                   <section className="bento-card">
                     <h2 className="text-xl font-bold mb-6">Behavioral Engagement</h2>
                     <div className="space-y-6">
-                      <BehaviorItem icon={<BookOpen size={18} />} label="Active Notes" value={behaviors.notes} total={7} color="bg-status-warning" />
-                      <BehaviorItem icon={<Calendar size={18} />} label="Lectures Attended" value={behaviors.lectures} total={7} color="bg-brand-primary" />
-                      <BehaviorItem icon={<History size={18} />} label="Mistake Remediation" value={behaviors.reviewed} total={7} color="bg-status-success" />
-                      <BehaviorItem icon={<AlertCircle size={18} />} label="Stress Signals" value={behaviors.anxiety} total={10} color="bg-status-danger" />
+                      {weeklyDifficulty && (
+                        <div className="p-4 rounded-lg bg-bg-tertiary border border-border-primary">
+                          <p className="text-sm font-semibold mb-2">Question Difficulty (recent)</p>
+                          <div className="flex items-center gap-3 text-sm">
+                            <div className="flex-1">
+                              <p className="text-text-tertiary text-xs">Easy</p>
+                              <p className="font-bold text-lg">{weeklyDifficulty.easy}</p>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-text-tertiary text-xs">Medium</p>
+                              <p className="font-bold text-lg">{weeklyDifficulty.medium}</p>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-text-tertiary text-xs">Hard</p>
+                              <p className="font-bold text-lg">{weeklyDifficulty.hard}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {behaviorCounts && (
+                        <div className="p-3 rounded-lg bg-bg-tertiary border border-border-primary">
+                          <p className="text-sm font-semibold mb-2">Behavioral Counts</p>
+                          <div className="flex items-center gap-4 text-sm">
+                            <div className="flex-1">
+                              <p className="text-text-tertiary text-xs">Rapid Guess Rows</p>
+                              <p className="font-bold">{behaviorCounts.rapidGuesses}</p>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-text-tertiary text-xs">Session Fatigue (sum)</p>
+                              <p className="font-bold">{Math.round(behaviorCounts.sessionFatigue)}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="space-y-6">
+                        <BehaviorItem icon={<BookOpen size={18} />} label="Active Notes" value={behaviors.notes} total={7} color="bg-status-warning" />
+                        <BehaviorItem icon={<Calendar size={18} />} label="Lectures Attended" value={behaviors.lectures} total={7} color="bg-brand-primary" />
+                        <BehaviorItem icon={<History size={18} />} label="Mistake Remediation" value={behaviors.reviewed} total={7} color="bg-status-success" />
+                        <BehaviorItem icon={<AlertCircle size={18} />} label="Stress Signals" value={behaviors.anxiety} total={10} color="bg-status-danger" />
+                      </div>
                     </div>
                   </section>
                 </div>
@@ -443,6 +649,7 @@ export default function App() {
                     <div className="w-full h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${p.avgPct}%`, backgroundColor: p.color }}></div>
                     </div>
+                    
                   </div>
                 ))}
               </motion.div>
@@ -576,47 +783,95 @@ export default function App() {
       {showLiveTest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl relative">
-            <button onClick={() => {setShowLiveTest(false); setLiveTestResult(null);}} className="absolute top-4 right-4 text-text-tertiary hover:text-text-primary">
+            <button onClick={closeLiveTest} className="absolute top-4 right-4 text-text-tertiary hover:text-text-primary">
               ✕
             </button>
             <h2 className="text-2xl font-bold mb-6 flex items-center gap-2"><Zap className="text-brand-primary" /> Live Sprint Test</h2>
             
             {!liveTestResult ? (
               <div className="space-y-6">
-                <p className="text-text-secondary text-sm">Answer these 3 quick questions to gauge your current state. We'll provide real-time AI feedback.</p>
+                <div className="flex items-center justify-between text-xs font-semibold text-text-secondary uppercase tracking-wider">
+                  <span>Question {liveCurrentIdx + 1} / {LIVE_TEST_QUESTIONS.length}</span>
+                  <span>Part {liveCurrentQuestion.part}</span>
+                </div>
+
+                <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-brand-primary rounded-full transition-all"
+                    style={{ width: `${((liveCurrentIdx + 1) / LIVE_TEST_QUESTIONS.length) * 100}%` }}
+                  ></div>
+                </div>
+
+                <p className="text-text-secondary text-sm">
+                  Answer each question naturally. We track rapid choices, answer changes, and repeated wrong items.
+                </p>
+
                 <div className="space-y-4">
                   <div className="p-4 rounded-xl bg-bg-tertiary border border-border-primary">
-                    <p className="font-semibold mb-3">1. The new software update will be _____ next Monday.</p>
-                    <div className="flex gap-2">
-                      <button className="flex-1 py-2 rounded-lg bg-white border border-border-primary hover:bg-brand-primary hover:text-white transition-colors text-sm font-medium">installing</button>
-                      <button className="flex-1 py-2 rounded-lg bg-brand-primary text-white font-medium text-sm">installed</button>
+                    <p className="font-semibold mb-3">{liveCurrentQuestion.prompt}</p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {liveCurrentQuestion.options.map((option, optionIdx) => {
+                        const active = liveCurrentAnswer?.selectedIndex === optionIdx;
+                        return (
+                          <button
+                            key={option}
+                            onClick={() => selectLiveOption(optionIdx)}
+                            className={cn(
+                              "w-full py-2 rounded-lg border transition-colors text-sm font-medium text-left px-3",
+                              active
+                                ? "bg-brand-primary text-white border-brand-primary"
+                                : "bg-white border-border-primary hover:bg-brand-primary hover:text-white"
+                            )}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-                <button 
-                  disabled={submittingTest}
-                  onClick={async () => {
-                    setSubmittingTest(true);
-                    try {
-                      const payload = {
-                        answers: [
-                          { questionId: 'q1', isCorrect: true, timeTaken: 12 },
-                          { questionId: 'q2', isCorrect: false, timeTaken: 8 },
-                          { questionId: 'q3', isCorrect: true, timeTaken: 15 }
-                        ]
-                      };
-                      const res = await submitLiveTest(parseInt(userId), payload);
-                      setLiveTestResult(res);
-                    } catch (e) {
-                      console.error(e);
-                    } finally {
-                      setSubmittingTest(false);
-                    }
-                  }}
-                  className="w-full py-3 rounded-xl bg-brand-primary text-white font-bold disabled:opacity-70 flex justify-center items-center gap-2"
-                >
-                  {submittingTest ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : 'Submit Test'}
-                </button>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Rapid Answers</p>
+                    <p className="font-bold text-status-warning">{liveMistakeSignals.rapidGuesses}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Answer Changes</p>
+                    <p className="font-bold text-brand-primary">{liveMistakeSignals.answerChanges}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Repeated Wrong</p>
+                    <p className="font-bold text-status-danger">{liveMistakeSignals.repeatedWrong}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Avg Time / Q</p>
+                    <p className="font-bold text-text-primary">{liveMistakeSignals.avgTimeSeconds || '-'}s</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setLiveCurrentIdx((v) => Math.max(0, v - 1))}
+                    disabled={liveCurrentIdx === 0 || submittingTest}
+                    className="flex-1 py-3 rounded-xl bg-bg-tertiary text-text-primary font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                  <button
+                    disabled={!liveCurrentAnswer || liveCurrentAnswer.selectedIndex === null || submittingTest}
+                    onClick={goToNextLiveQuestion}
+                    className="flex-1 py-3 rounded-xl bg-brand-primary text-white font-bold disabled:opacity-70 flex justify-center items-center gap-2"
+                  >
+                    {submittingTest ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                    ) : liveCurrentIdx === LIVE_TEST_QUESTIONS.length - 1 ? (
+                      'Submit Test'
+                    ) : (
+                      'Next Question'
+                    )}
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="space-y-6 animate-in fade-in zoom-in duration-300">
@@ -640,7 +895,38 @@ export default function App() {
                     {liveTestResult.nextCorrection}
                   </p>
                 </div>
-                <button onClick={() => setShowLiveTest(false)} className="w-full py-3 rounded-xl bg-bg-tertiary text-text-primary font-bold hover:bg-border-primary transition-colors">
+
+                {liveTestResult.behaviorSummary?.length > 0 && (
+                  <div className="bg-bg-tertiary p-5 rounded-2xl">
+                    <p className="text-xs font-bold text-text-tertiary uppercase mb-3">Behavior Insights</p>
+                    <div className="space-y-2">
+                      {liveTestResult.behaviorSummary.map((line, idx) => (
+                        <p key={idx} className="text-sm text-text-primary leading-relaxed">• {line}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Rapid Guesses</p>
+                    <p className="font-bold text-status-warning">{liveTestResult.mistakeSignals?.rapidGuesses ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Answer Changes</p>
+                    <p className="font-bold text-brand-primary">{liveTestResult.mistakeSignals?.answerChanges ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Repeated Wrong</p>
+                    <p className="font-bold text-status-danger">{liveTestResult.mistakeSignals?.repeatedWrong ?? 0}</p>
+                  </div>
+                  <div className="rounded-xl border border-border-primary bg-bg-tertiary p-3">
+                    <p className="text-text-tertiary text-xs uppercase font-bold mb-1">Avg Time / Q</p>
+                    <p className="font-bold text-text-primary">{liveTestResult.mistakeSignals?.avgTimeSeconds ?? 0}s</p>
+                  </div>
+                </div>
+
+                <button onClick={closeLiveTest} className="w-full py-3 rounded-xl bg-bg-tertiary text-text-primary font-bold hover:bg-border-primary transition-colors">
                   Close & Continue
                 </button>
               </div>
@@ -750,7 +1036,6 @@ const MODEL_LABELS: Record<string, string> = {
   'random-forest': 'Random Forest',
   'lightgbm': 'LightGBM',
   'lstm-raw': 'LSTM (raw)',
-  '1d-cnn-raw': '1D-CNN (raw)',
 };
 
 function DailyChallengePanel({ userId }: { userId: number }) {

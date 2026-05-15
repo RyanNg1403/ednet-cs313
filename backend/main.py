@@ -275,22 +275,54 @@ async def get_user_dashboard(user_id: int):
         rapid_guesses=rapid_guesses, 
         session_fatigue=session_fatigue
     )
-    
+    # Compute recent difficulty distribution (last ~50 attempts)
+    try:
+        tail = user_data.tail(50)
+        if 'feat_question_difficulty' in tail.columns:
+            diffs = tail['feat_question_difficulty'].fillna(0).astype(float).clip(0, 1.0)
+        else:
+            diffs = pd.Series([0.0] * len(tail))
+        easy = int((diffs < 0.33).sum())
+        medium = int(((diffs >= 0.33) & (diffs <= 0.66)).sum())
+        hard = int((diffs > 0.66).sum())
+        total_diff = int(len(diffs))
+    except Exception:
+        easy = medium = hard = total_diff = 0
+
+    # Behavioral counts from history
+    try:
+        rapid_guess_rows = int((user_data['feat_is_rapid_guess'].fillna(0) > 0).sum())
+        session_fatigue_total = float(user_data['feat_session_fatigue'].fillna(0).sum())
+    except Exception:
+        rapid_guess_rows = 0
+        session_fatigue_total = 0.0
+
     return {
         "history": history,
         "coaching": coaching,
         "todayFocusTasks": todayFocusTasks,
-        "focusDate": focus_date
+        "focusDate": focus_date,
+        "weeklyDifficulty": {
+            "easy": easy,
+            "medium": medium,
+            "hard": hard,
+            "total": total_diff,
+        },
+        "behaviorCounts": {
+            "rapidGuesses": rapid_guess_rows,
+            "sessionFatigue": session_fatigue_total,
+        }
     }
 
 async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explanation_ratio, lecture_watches, rapid_guesses, session_fatigue):
     # Provide a fallback in case Gemini isn't configured
     fallback = {
         "progressComment": f"Bạn đang duy trì tỷ lệ đúng {overall_acc*100:.1f}%. Dự đoán khả năng làm đúng câu tiếp theo là {pred_prob*100:.1f}%.",
-        "praises": ["Tích cực luyện tập."] if lecture_watches > 0 else [],
+        "praises": ["Tích cực luyện tập."] if lecture_watches > 0 else ["Bạn đã dành thời gian luyện tập."],
         "weaknesses": ["Dấu hiệu mệt mỏi."] if session_fatigue > 10 else [],
         "emotionalNote": "Cố gắng lên nhé!",
         "tomorrowFocus": "Tiếp tục cải thiện điểm số.",
+        "sources": ["feat_recent_accuracy", "feat_is_rapid_guess", "feat_session_fatigue", "xgboost_prediction"],
         "error": False
     }
     
@@ -312,19 +344,18 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
     - Rapid Guesses (sign of anxiety/guessing): {rapid_guesses}
     - Session Fatigue: {session_fatigue}
 
-    Please act as a helpful and encouraging tutor. 
-    Analyze the behaviors:
-    - ALWAYS include a compliment in the `praises` array. Even if lecture_watches is 0 or they haven't read explanations, praise them for their effort, for trying to take notes, or for just showing up to practice. Make sure they feel encouraged!
-    - If rapid_guesses > 0 or session_fatigue is high, note this as an anxiety/fatigue weakness and recommend rest.
-    - If pred_prob is low, suggest going back to basics.
-    
-    Output strictly in the following JSON format:
+    Please act as a helpful and encouraging tutor. ALWAYS include a short compliment in `praises`.
+
+    Additionally: include a `sources` array listing the input signals or fields you used to support your analysis (e.g. feat_recent_accuracy, feat_is_rapid_guess, xgboost_prediction).
+
+    Output strictly in JSON format with these fields:
     {{
-        "progressComment": "A 2-sentence summary of their current progress and predicted state.",
-        "praises": ["Praise 1", "Praise 2"],
-        "weaknesses": ["Weakness 1", "Weakness 2"],
-        "emotionalNote": "A short, empathetic note to motivate the user.",
-        "tomorrowFocus": "A concrete action item for tomorrow's study session."
+        "progressComment": "A 1-2 sentence summary.",
+        "praises": ["..."],
+        "weaknesses": ["..."],
+        "emotionalNote": "...",
+        "tomorrowFocus": "...",
+        "sources": ["signal1", "signal2"]
     }}
     """
     
@@ -337,17 +368,49 @@ async def generate_coaching(user_id, pred_prob, overall_acc, recent_acc, explana
         fallback["error"] = True
         return fallback
 
+class LiveTestAnswer(BaseModel):
+    questionId: str
+    isCorrect: bool
+    timeTaken: Optional[float] = None
+    answerChanges: Optional[int] = 0
+    part: Optional[int] = None
+    seenBefore: Optional[bool] = False
+    selectedOption: Optional[str] = None
+    correctOption: Optional[str] = None
+
+
 class LiveTestSubmission(BaseModel):
-    answers: List[dict]
+    answers: List[LiveTestAnswer]
 
 @app.post("/api/live-test/{user_id}")
 async def submit_live_test(user_id: int, payload: LiveTestSubmission):
     if df_features is None:
         raise HTTPException(status_code=500, detail="Dataset not loaded")
+
+    if len(payload.answers) == 0:
+        raise HTTPException(status_code=400, detail="At least one answer is required")
     
     total = len(payload.answers)
-    correct = sum(1 for a in payload.answers if a.get("isCorrect", False))
+    correct = sum(1 for a in payload.answers if a.isCorrect)
     live_acc = correct / total if total > 0 else 0
+
+    rapid_guess_threshold = 8.0
+    rapid_guesses = sum(
+        1 for a in payload.answers
+        if a.timeTaken is not None and a.timeTaken > 0 and a.timeTaken <= rapid_guess_threshold
+    )
+    answer_changes_total = sum(max(0, int(a.answerChanges or 0)) for a in payload.answers)
+    repeated_wrong = sum(1 for a in payload.answers if a.seenBefore and not a.isCorrect)
+    avg_time_seconds = float(np.mean([float(a.timeTaken or 0) for a in payload.answers]))
+
+    part_breakdown: Dict[int, Dict[str, int]] = {}
+    for a in payload.answers:
+        if a.part is None:
+            continue
+        part_breakdown.setdefault(a.part, {"total": 0, "wrong": 0})
+        part_breakdown[a.part]["total"] += 1
+        if not a.isCorrect:
+            part_breakdown[a.part]["wrong"] += 1
     
     user_data_pl = df_features.filter(pl.col('user_id') == user_id)
     if len(user_data_pl) == 0:
@@ -366,33 +429,95 @@ async def submit_live_test(user_id: int, payload: LiveTestSubmission):
         pred_prob = float(xgb_model.predict(dmatrix)[0])
     else:
         pred_prob = 0.5
-        
+
+    behavior_summary: List[str] = []
+    if rapid_guesses > 0:
+        behavior_summary.append(
+            f"{rapid_guesses}/{total} answers were selected in <= {int(rapid_guess_threshold)}s (possible rushing)."
+        )
+    if answer_changes_total > 0:
+        behavior_summary.append(
+            f"You changed answers {answer_changes_total} time(s), which can indicate uncertainty."
+        )
+    if repeated_wrong > 0:
+        behavior_summary.append(
+            f"{repeated_wrong} previously seen question(s) were still incorrect."
+        )
+
+    if not behavior_summary:
+        behavior_summary.append("Stable behavior detected: no rapid guesses, no repeated wrong, and no answer flips.")
+
+    worst_part = None
+    worst_part_wrong = -1
+    for part_id, stats in part_breakdown.items():
+        if stats["wrong"] > worst_part_wrong:
+            worst_part_wrong = stats["wrong"]
+            worst_part = part_id
+
+    message = (
+        f"You answered {correct}/{total} correctly ({live_acc*100:.1f}%). "
+        f"Your next-question success prediction is {pred_prob*100:.1f}%."
+    )
+
+    next_correction = "Review the mistakes you made and explain why the correct option is right before moving on."
+    if repeated_wrong > 0:
+        next_correction = "Start with repeated wrong items first: write one short rule for each and retry the same pattern."
+    elif rapid_guesses > 0:
+        next_correction = "Slow down your first pass: force a 2-step check (keyword + grammar clue) before locking an answer."
+    elif answer_changes_total > 0:
+        next_correction = "Reduce answer flipping: commit only after eliminating at least one distractor explicitly."
+    elif worst_part is not None and worst_part_wrong > 0:
+        next_correction = f"Do a focused 5-question mini-drill on Part {worst_part} to close the current gap."
+
+    base_response = {
+        "liveAccuracy": live_acc,
+        "nextPrediction": pred_prob,
+        "message": message,
+        "nextCorrection": next_correction,
+        "behaviorSummary": behavior_summary,
+        "mistakeSignals": {
+            "rapidGuesses": int(rapid_guesses),
+            "answerChanges": int(answer_changes_total),
+            "repeatedWrong": int(repeated_wrong),
+            "avgTimeSeconds": int(round(avg_time_seconds)),
+        },
+    }
+
+    provider, _, _ = _resolve_llm_provider()
+    if provider is None:
+        return base_response
+
     prompt = f"""
-    You are an AI English Tutor. User {user_id} just completed a live test of {total} questions.
-    They got {correct} correct (Accuracy: {live_acc*100:.1f}%).
-    The XGBoost model now predicts a {pred_prob*100:.1f}% chance of answering the next question correctly.
-    
-    Provide immediate real-time feedback.
-    
-    Output strictly in JSON:
-    {{
-        "liveAccuracy": {live_acc},
-        "nextPrediction": {pred_prob},
-        "message": "A short encouraging message about their live test performance.",
-        "nextCorrection": "One concrete action they should take right now based on the test."
-    }}
+    You are an AI English Tutor. Return JSON only.
+    Student live test summary:
+    - Correct: {correct}/{total} ({live_acc*100:.1f}%)
+    - Next-question prediction: {pred_prob*100:.1f}%
+    - Rapid guesses (<= {int(rapid_guess_threshold)}s): {rapid_guesses}
+    - Total answer changes: {answer_changes_total}
+    - Repeated wrong (seen before but wrong): {repeated_wrong}
+    - Average seconds per question: {avg_time_seconds:.1f}
+
+    Improve these two fields while staying supportive and concrete:
+    - message
+    - nextCorrection
+
+    Keep behaviorSummary and mistakeSignals unchanged from input.
+
+    Input JSON:
+    {json.dumps(base_response, ensure_ascii=True)}
     """
-    
+
     try:
-        return _llm_json_completion(prompt)
+        llm_data = _llm_json_completion(prompt)
+        merged = {
+            **base_response,
+            "message": str(llm_data.get("message", base_response["message"])),
+            "nextCorrection": str(llm_data.get("nextCorrection", base_response["nextCorrection"])),
+        }
+        return merged
     except Exception as e:
         logging.error(f"LLM API Error in Live Test: {e}")
-        return {
-            "liveAccuracy": live_acc,
-            "nextPrediction": pred_prob,
-            "message": "Great effort on the live test! The AI is currently resting, but keep up the good work.",
-            "nextCorrection": "Review the questions you just missed."
-        }
+        return base_response
 
 class DailyChallengeRequest(BaseModel):
     totalN: Optional[int] = None

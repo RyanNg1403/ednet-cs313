@@ -1,4 +1,4 @@
-import { AICoachingData, DayData, TaskItem } from '../types';
+import { AICoachingData, DayData, LiveTestPayload, LiveTestResponse, TaskItem } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api';
 
@@ -7,6 +7,16 @@ export interface DashboardData {
   coaching: AICoachingData;
   todayFocusTasks: TaskItem[];
   focusDate: string;
+  weeklyDifficulty?: {
+    easy: number;
+    medium: number;
+    hard: number;
+    total: number;
+  };
+  behaviorCounts?: {
+    rapidGuesses: number;
+    sessionFatigue: number;
+  };
 }
 
 export async function getDashboardData(userId: number): Promise<DashboardData> {
@@ -76,7 +86,7 @@ export async function runDailyChallenge(
   return r.json();
 }
 
-export async function submitLiveTest(userId: number, payload: any): Promise<any> {
+export async function submitLiveTest(userId: number, payload: LiveTestPayload): Promise<LiveTestResponse> {
   try {
     const response = await fetch(`${API_BASE}/live-test/${userId}`, {
       method: 'POST',
@@ -89,7 +99,7 @@ export async function submitLiveTest(userId: number, payload: any): Promise<any>
       const errorBody = await response.json().catch(() => ({}));
       throw new Error(errorBody?.detail ?? `HTTP ${response.status}`);
     }
-    return await response.json();
+    return await response.json() as LiveTestResponse;
   } catch (error) {
     console.error('API Error in Live Test:', error);
     throw error;

@@ -29,6 +29,7 @@ export interface AICoachingData {
   weaknesses: string[];
   emotionalNote: string;
   tomorrowFocus: string;
+  sources?: string[];
   error?: boolean;
 }
 
@@ -45,6 +46,11 @@ export interface LiveTestPayload {
     questionId: string;
     isCorrect: boolean;
     timeTaken: number;
+    answerChanges: number;
+    part?: number;
+    seenBefore?: boolean;
+    selectedOption?: string;
+    correctOption?: string;
   }[];
 }
 
@@ -53,4 +59,11 @@ export interface LiveTestResponse {
   nextPrediction: number;
   message: string;
   nextCorrection: string;
+  behaviorSummary: string[];
+  mistakeSignals: {
+    rapidGuesses: number;
+    answerChanges: number;
+    repeatedWrong: number;
+    avgTimeSeconds: number;
+  };
 }
