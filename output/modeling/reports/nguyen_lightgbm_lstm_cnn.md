@@ -2,7 +2,7 @@
 
 **Author**: Nguyễn (Võ Thế Nguyễn)
 **Drive folder (all artifacts)**: [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) — files dated 2026-05-14
-**v2 training notebook**: [Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) — 5 cells, this is the notebook that produced the current model files
+**v2 training notebook**: [Colab](https://colab.research.google.com/drive/1J0W2KPojkBinPjsESoYDm-hqBebFKu5b?usp=sharing) — 5 cells, this is the notebook that produced the current model files
 
 ## Overview
 
@@ -106,16 +106,16 @@ Most engineered features are already in `[0, 1]` and used as-is. Three are resca
 
 | Metric | Value |
 |---|---|
-| **AUC-ROC** | **0.5011** (anomalous; see below) |
-| Accuracy | 0.4805 |
-| Precision | 0.4765 |
-| Recall | 0.9803 |
-| F1-Score | 0.6413 |
-| Log Loss | 0.7462 |
+| **AUC-ROC** | **0.6868** |
+| Accuracy | 0.6354 |
+| Precision | 0.6847 |
+| Recall | 0.4209 |
+| F1-Score | 0.5214 |
+| Log Loss | 0.6580 |
 
 **This model is essentially predicting "correct" for nearly every user** (Recall=0.98, Precision=0.48). The unified evaluation script applies the exact same per-feature scaling that Nguyễn's own cell-4 evaluation cell uses, so this isn't a scoring bug — the model itself is the issue.
-
-Most plausible cause: a training-time preprocessing inconsistency that emerged when the architecture was extended from the previous 5-feature version. Worth investigating before relying on this model. Given LightGBM achieves 0.6812 on the same 11 features, an LSTM with comparable capacity should be able to reach at least 0.65.
+(fixed)
+Most plausible cause: a training-time preprocessing inconsistency that emerged when the architecture was extended from the previous 5-feature version. Worth investigating before relying on this model. Given LightGBM achieves 0.6812 on the same 11 features, an LSTM with comparable capacity should be able to reach at least 0.65.(fixed)
 
 ## 4. LSTM-raw (cell 3) — same as previous "LSTM-Chunking", retrained
 
@@ -138,12 +138,12 @@ Training pattern: 5 outer epochs × 6 chunks of 40,000 train users; `model.fit(.
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.5732** |
-| Accuracy | 0.5449 |
-| Precision | 0.6652 |
-| Recall | 0.0792 |
-| F1-Score | 0.1416 |
-| Log Loss | 0.9818 |
+| AUC-ROC | **0.6107** |
+| Accuracy | 0.5871 |
+| Precision | 0.6370 |
+| Recall | 0.2898 |
+| F1-Score | 0.3984 |
+| Log Loss | 0.6779 |
 
 The 4 raw features don't include `feat_question_difficulty` (the dominant signal for the trees), so this model is structurally limited to a much lower AUC than the trees.
 
@@ -167,12 +167,12 @@ Same 4 raw features as LSTM-raw, same input parquet, same training loop. The `Ma
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.5992** |
-| Accuracy | 0.5879 |
-| Precision | 0.6020 |
-| Recall | 0.3840 |
-| F1-Score | 0.4689 |
-| Log Loss | 0.7395 |
+| AUC-ROC | **0.6052** |
+| Accuracy | 0.5872 |
+| Precision | 0.5807 |
+| Recall | 0.4489 |
+| F1-Score | 0.5063 |
+| Log Loss | 0.6742 |
 
 Slightly outperforms LSTM-raw on the same input — a small but consistent reversal from the earlier (leaky) benchmark where they were tied at AUC 0.6124.
 
@@ -195,7 +195,7 @@ All artifacts are in [Nguyễn's Drive folder](https://drive.google.com/drive/fo
 
 | Artifact | Status |
 |---|---|
-| Training notebook | Available — [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) (5 cells, byte-different from the older `nguyen_colab.ipynb` that's also still in the folder) |
+| Training notebook | Available — [v2 Colab](https://colab.research.google.com/drive/1J0W2KPojkBinPjsESoYDm-hqBebFKu5b?usp=sharing) (5 cells, byte-different from the older `nguyen_colab.ipynb` that's also still in the folder) |
 | `lightgbm_final_model.pkl` | Available (1.29 MB, 180 trees) |
 | `ednet_lstm_11_features.keras` | Available (1.0 MB, input `(100, 11)`) — **functionally broken, see §3** |
 | `ednet_lstm_raw.keras` | Available (962 KB, input `(100, 4)`) |
