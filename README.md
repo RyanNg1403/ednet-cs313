@@ -75,7 +75,7 @@ Full reports with plots:
 
 ### Task setup
 
-**Problem**: binary classification — predict whether a student answers a given question correctly. The label is `1` if the response is correct and `0` otherwise; every model outputs a probability in `[0, 1]`. All six models are evaluated on the **last response of each test user** (one prediction per user, 59,341 predictions total), so their AUC/Accuracy/F1 are directly comparable.
+**Problem**: binary classification — predict whether a student answers a given question correctly. The label is `1` if the response is correct and `0` otherwise; every model outputs a probability in `[0, 1]`. All five models are evaluated on the **last response of each test user** (one prediction per user, 59,341 predictions total), so their AUC/Accuracy/F1 are directly comparable.
 
 The two model families consume **different inputs**: the trees see a single tabular row per prediction; the deep models see a sequence of the user's last 100 interactions.
 
@@ -88,7 +88,6 @@ The two model families consume **different inputs**: the trees see a single tabu
 | LightGBM | `kt4_features_ultimate.parquet` | `(11,)` tabular row | same 11 engineered features |
 | LSTM-11-features | `kt4_features_ultimate.parquet` | `(100, 11)` sequence | the user's last 100 interactions, each described by the 11 engineered features |
 | LSTM-raw | `kt4_preprocessed.parquet` | `(100, 4)` sequence | the user's last 100 interactions, each described by 4 raw signals: `part`, `log1p(time_since_prev)`, `hour-of-day`, shifted past `is_correct` |
-| 1D-CNN-raw | `kt4_preprocessed.parquet` | `(100, 4)` sequence | same 4 raw signals as LSTM-raw |
 
 The 11 engineered features (shared by RF / XGBoost / LightGBM / LSTM-11-features):
 
@@ -99,7 +98,7 @@ feat_is_rapid_guess, part, feat_total_attempts, feat_listening_accuracy,
 feat_explanation_ratio
 ```
 
-Note: the 4 raw signals do **not** include `feat_question_difficulty`, which is the dominant predictive signal for the trees — this structurally caps the achievable AUC of LSTM-raw and 1D-CNN-raw below the tree models.
+Note: the 4 raw signals do **not** include `feat_question_difficulty`, which is the dominant predictive signal for the trees — this structurally caps the achievable AUC of LSTM-raw below the tree models.
 
 #### Outputs per model
 
@@ -110,9 +109,8 @@ Note: the 4 raw signals do **not** include `feat_question_difficulty`, which is 
 | LightGBM | `is_correct` of each training row | One probability per test user — predicted on that user's last response |
 | LSTM-11-features | `is_correct` of the **last** step of each user's sequence | One probability per test user (architecture emits a single output per sequence) |
 | LSTM-raw | `is_correct` of the **last** step of each user's sequence | One probability per test user |
-| 1D-CNN-raw | `is_correct` of the **last** step of each user's sequence | One probability per test user |
 
-The trees are trained per-row but evaluated only on each user's last row, so the test-time prediction task is identical across all six models: *given everything we know about a user up to their last question, how likely is that last answer to be correct?*
+The trees are trained per-row but evaluated only on each user's last row, so the test-time prediction task is identical across all five models: *given everything we know about a user up to their last question, how likely is that last answer to be correct?*
 
 ### Results
 
@@ -125,25 +123,24 @@ Test-set metrics (sorted by AUC, all on the same 59,341 predictions):
 | **Phương XGBoost** | **0.6871** | 0.6304 | 0.6786 | 0.4176 | 0.5170 | 0.6392 |
 | Phương Random Forest | 0.6831 | 0.6251 | 0.6797 | 0.3944 | 0.4991 | 0.6427 |
 | Nguyễn LightGBM | 0.6812 | 0.6330 | 0.6381 | 0.5205 | 0.5733 | 0.6368 |
-| Nguyễn 1D-CNN-raw | 0.5992 | 0.5879 | 0.6020 | 0.3840 | 0.4689 | 0.7395 |
 | Nguyễn LSTM-raw | 0.5732 | 0.5449 | 0.6652 | 0.0792 | 0.1416 | 0.9818 |
 | Nguyễn LSTM-11-features | 0.5011* | 0.4805 | 0.4765 | 0.9803 | 0.6413 | 0.7462 |
 
-Drive locations: [Phương folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) (`random_forest_final_model.pkl`, `xgboost_final_model.json`) · Nguyễn [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) and [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) (`lightgbm_final_model.pkl`, `ednet_lstm_11_features.keras`, `ednet_lstm_raw.keras`, `ednet_1d_cnn_raw.keras`).
+Drive locations: [Phương folder](https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_?usp=sharing) (`random_forest_final_model.pkl`, `xgboost_final_model.json`) · Nguyễn [v2 Colab](https://colab.research.google.com/drive/1P768sw_p2qG13LUwcUSomdZOtiesDjEK?usp=drive_link) and [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) (`lightgbm_final_model.pkl`, `ednet_lstm_11_features.keras`, `ednet_lstm_raw.keras`).
 
 Visualisations in [`output/modeling/plots/`](output/modeling/plots/):
 
 - `phuong_xgboost_evaluation.png` — Phương's XGBoost figure from her training run. The only genuinely training-dynamics panel in the project is the learning curve (train + test AUC vs boosting rounds 0–499) inside this composite. The other panels (feature importance, ROC, confusion matrix, prediction distribution) are post-hoc evaluation. Nguyễn's notebook contains no plotting cells.
 - `tree_models_test.png` — test-set comparison for RF + XGB + LightGBM: grouped AUC/Accuracy/F1 bars + overlaid ROC curves.
-- `deep_models_test.png` — same layout, for LSTM-11-features + LSTM-raw + 1D-CNN-raw.
-- `all_models_test.png` — same layout, all six models together.
+- `deep_models_test.png` — same layout, for LSTM-11-features + LSTM-raw.
+- `all_models_test.png` — same layout, all remaining models together.
 
 \* LSTM-11-features collapses to near-random AUC despite seeing the same 11 features as LightGBM — likely a training-time preprocessing bug; flagged for investigation. See [`cross_member_review.md`](output/modeling/reports/cross_member_review.md) §4.
 
 Per-member methodology, hyperparameters, and per-task notes:
 
 - [`phuong_random_forest_xgboost.md`](output/modeling/reports/phuong_random_forest_xgboost.md)
-- [`nguyen_lightgbm_lstm_cnn.md`](output/modeling/reports/nguyen_lightgbm_lstm_cnn.md)
+- [`nguyen_lightgbm_lstm.md`](output/modeling/reports/nguyen_lightgbm_lstm.md)
 - [`cross_member_review.md`](output/modeling/reports/cross_member_review.md) — apples-to-apples comparison
 - [`data_and_splits_per_model.md`](output/modeling/reports/data_and_splits_per_model.md) — exact train/test splits per model
 
