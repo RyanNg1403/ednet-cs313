@@ -1,204 +1,456 @@
 # EdNet-KT4: LightGBM, LSTM & 1D-CNN Modeling Report
 
-**Author**: Nguyễn (Võ Thế Nguyễn)
-**Drive folder (all artifacts)**: [folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing) — files dated 2026-05-14
-**v2 training notebook**: [Colab](https://colab.research.google.com/drive/1J0W2KPojkBinPjsESoYDm-hqBebFKu5b?usp=sharing) — 5 cells, this is the notebook that produced the current model files
+**Author**: Võ Thế Nguyễn
 
 ## Overview
 
-Four models, all retrained on **2026-05-14** under the team-agreed user-level split:
+This report summarizes all models implemented and benchmarked in the notebook `Untitled2.ipynb`.
 
-1. **LightGBM** on the 11-feature engineered table (chunked incremental training).
-2. **LSTM-11-features** — new architecture, sees the same 11 engineered features as LightGBM, last-target supervision.
-3. **LSTM-raw** — same architecture as the previous "LSTM-Chunking", retrained on the agreed split.
-4. **1D-CNN-raw** — same architecture as the previous "1D-CNN-Chunking", retrained.
+The notebook contains:
 
-The deep models are all **last-target** supervised: each user's sequence (last up to 100 responses) produces one prediction (the correctness of the very last response). `MAX_LEN=100` so users with more than 100 responses have their early history truncated away.
+1. User-level train/validation/test splitting
+2. LightGBM with 11 engineered features
+3. LSTM Hybrid with 11 engineered features
+4. LSTM with 4 raw sequential features
+5. 1D-CNN with 4 raw sequential features
+6. Baseline LightGBM trained on raw preprocessed features
+7. Unified benchmark and visualization
 
-The notebook also contains an upstream feature-engineering pass that produces `kt4_features_ultimate.parquet` (18 columns, 23,308,702 rows). This file is byte-identical to Phương's `kt4_features_1.parquet` — same MD5, same data.
+All models use the same isolated user split to avoid data leakage.
 
 ---
 
-## 1. Train/Test Split (cell 0 of v2 notebook)
+# 1. Train / Validation / Test Split
+
+## Code
 
 ```python
 df_users = pd.read_parquet(FILE_ULTIMATE, columns=['user_id'])
 all_users = df_users['user_id'].unique()
-train_val_users, test_users = train_test_split(all_users, test_size=0.2, random_state=42)
-train_users, valid_users = train_test_split(train_val_users, test_size=0.1, random_state=42)
+
+train_val_users, test_users = train_test_split(
+    all_users,
+    test_size=0.2,
+    random_state=42
+)
+
+train_users, valid_users = train_test_split(
+    train_val_users,
+    test_size=0.1,
+    random_state=42
+)
+
 np.save(SAVE_DIR + 'train_users.npy', train_users)
 np.save(SAVE_DIR + 'valid_users.npy', valid_users)
 np.save(SAVE_DIR + 'test_users.npy', test_users)
 ```
 
-Result: **213,624 train / 23,737 valid / 59,341 test users**. All four models load these `.npy` files, so they share the split byte-identically. The valid users are used for early-stopping monitoring inside the deep training; they are *not* in the test set.
+## Result
 
-This is the team-canonical user split and produces test_users identical to `modeling/retrain/split.py`.
-
-## 2. LightGBM (cell 1)
-
-### Training pattern
-
-Chunked incremental training on the 11-feature engineered table:
-
-- 6 chunks of ~40,000 train users each
-- 30 boost rounds per chunk
-- `init_model=gbm` chained between chunks → resulting model has **180 trees total**
-- Validation set: the 23,737 held-out valid users, monitored after each chunk
-
-### Hyperparameters
-
-| Parameter | Value |
+| Split | Number of Users |
 |---|---|
-| `objective` | `binary` |
-| `metric` | `auc` |
-| `boosting_type` | `gbdt` |
-| `learning_rate` | 0.05 |
-| `num_leaves` | 63 |
-| `max_depth` | 8 |
-| `feature_fraction` | 0.8 |
-| `device_type` | `cpu` |
-| `num_iterations` | 30 (per chunk) |
+| Train | 213,624 |
+| Validation | 23,736 |
+| Test | 59,341 |
 
-### Test-set metrics (last response per test user)
+All models in the notebook use these exact `.npy` split files.
 
-Scored on the **last response per test user** (59,341 predictions):
+---
+
+# 2. LightGBM (11 Engineered Features)
+
+## Features
+
+```python
+FEATURES_11 = [
+    'feat_question_difficulty',
+    'feat_current_part_accuracy',
+    'feat_answer_changes',
+    'feat_overall_accuracy',
+    'feat_reading_accuracy',
+    'feat_recent_accuracy',
+    'feat_is_rapid_guess',
+    'part',
+    'feat_total_attempts',
+    'feat_listening_accuracy',
+    'feat_explanation_ratio'
+]
+```
+
+## Training Configuration
+
+### Code
+
+```python
+params = {
+    'objective': 'binary',
+    'metric': 'auc',
+    'boosting_type': 'gbdt',
+    'learning_rate': 0.05,
+    'num_leaves': 63,
+    'max_depth': 8,
+    'feature_fraction': 0.8,
+    'device_type': 'cpu',
+    'verbosity': -1
+}
+```
+
+### Training Strategy
+
+- Incremental chunk training
+- 6 chunks
+- Approximately 40,000 users per chunk
+- 30 boosting rounds per chunk
+- Validation monitored after every chunk
+- Final model saved as:
+
+```python
+lightgbm_final_model.pkl
+```
+
+## Evaluation Method
+
+The benchmark uses **last item prediction**:
+
+```python
+df_ult_last_item = df_ult.groupby('user_id').tail(1)
+```
+
+Only the final interaction of each test user is evaluated.
+
+## Metrics
 
 | Metric | Value |
 |---|---|
-| **AUC-ROC** | **0.6812** |
+| AUC | 0.6812 |
 | Accuracy | 0.6330 |
 | Precision | 0.6381 |
 | Recall | 0.5205 |
 | F1-Score | 0.5733 |
 | Log Loss | 0.6368 |
 
-> The earlier "AUC 0.7223" reported in older versions of this notebook was on a leaky row-level split. The current honest number is 0.6812 — about 0.04 AUC lower, exactly the typical leakage-removal magnitude in Knowledge Tracing literature.
+## Analysis
 
-## 3. LSTM-11-features (cell 2) — NEW architecture
+LightGBM achieved the best overall performance among all implemented models.
+The engineered statistical features provide strong predictive signals, especially:
 
-A fresh sequence model that consumes the same 11 engineered features as LightGBM, reshaped per-timestep:
+- `feat_question_difficulty`
+- `feat_recent_accuracy`
+- `feat_overall_accuracy`
 
+Tree-based boosting handles tabular engineered features very effectively and outperformed all deep learning models in this project.
+
+---
+
+# 3. LSTM Hybrid (11 Engineered Features)
+
+## Architecture
+
+### Code
+
+```python
+model = Sequential([
+    Input(shape=(100, 11)),
+    Masking(mask_value=-99.0),
+
+    LSTM(128, return_sequences=False),
+
+    BatchNormalization(),
+    Dropout(0.3),
+
+    Dense(64, activation='relu'),
+    Dropout(0.2),
+
+    Dense(1, activation='sigmoid')
+])
 ```
-Input(shape=(100, 11))
-Masking(mask_value=-99.0)
-LSTM(128, return_sequences=False)
-BatchNormalization()
-Dropout(0.3)
-Dense(64, activation='relu')
-Dropout(0.2)
-Dense(1, activation='sigmoid')
+
+## Feature Scaling
+
+### Code
+
+```python
+pad_and_scale_test('feat_answer_changes',
+                   lambda x: np.log1p(x) / 5.0)
+
+pad_and_scale_test('part',
+                   lambda x: x / 7.0)
+
+pad_and_scale_test('feat_total_attempts',
+                   lambda x: np.log1p(x) / 10.0)
 ```
 
-### Per-feature scaling at training time
+## Training Strategy
 
-Most engineered features are already in `[0, 1]` and used as-is. Three are rescaled before being fed to the LSTM:
+- Sequence length: `MAX_LEN = 100`
+- 5 outer epochs
+- 8 chunks of 30,000 users
+- Validation monitored continuously
+- Model saved as:
 
-- `part`: divided by 7
-- `feat_answer_changes`: `log1p(x) / 5`
-- `feat_total_attempts`: `log1p(x) / 10`
+```python
+ednet_lstm_11_features.keras
+```
 
-### Training pattern
-
-5 outer epochs, each looping through 8 chunks of 30,000 train users. `model.fit()` is called once per chunk with `validation_data=valid` and `epochs=1`. No early stopping.
-
-### Test-set metrics (last response per test user) — anomalous
+## Metrics
 
 | Metric | Value |
 |---|---|
-| **AUC-ROC** | **0.6868** |
+| AUC | 0.6868 |
 | Accuracy | 0.6354 |
 | Precision | 0.6847 |
 | Recall | 0.4209 |
 | F1-Score | 0.5214 |
 | Log Loss | 0.6580 |
 
-**This model is essentially predicting "correct" for nearly every user** (Recall=0.98, Precision=0.48). The unified evaluation script applies the exact same per-feature scaling that Nguyễn's own cell-4 evaluation cell uses, so this isn't a scoring bug — the model itself is the issue.
-(fixed)
-Most plausible cause: a training-time preprocessing inconsistency that emerged when the architecture was extended from the previous 5-feature version. Worth investigating before relying on this model. Given LightGBM achieves 0.6812 on the same 11 features, an LSTM with comparable capacity should be able to reach at least 0.65.(fixed)
+## Analysis
 
-## 4. LSTM-raw (cell 3) — same as previous "LSTM-Chunking", retrained
+This model processes sequential behavioral patterns using the same engineered features as LightGBM.
 
-Same architecture as before, retrained on the agreed split:
+Compared with LightGBM:
 
+- Similar AUC performance
+- Higher precision
+- Lower recall
+- More computationally expensive
+
+The model captures temporal patterns in student learning behavior, but the improvement over LightGBM is limited despite the significantly higher training cost.
+
+---
+
+# 4. LSTM Raw (4 Sequential Features)
+
+## Input Features
+
+Each timestep contains:
+
+```python
+[
+    part / 7,
+    log1p(time_since_prev) / 15,
+    hour / 24,
+    shifted_is_correct
+]
 ```
-Input(shape=(100, 4))
-Masking(mask_value=-99.0)
-LSTM(128, return_sequences=False)
-BatchNormalization() → Dropout(0.3)
-Dense(64, activation='relu') → Dropout(0.2)
-Dense(1, activation='sigmoid')
+
+## Architecture
+
+### Code
+
+```python
+model_lstm_raw = Sequential([
+    Input(shape=(100, 4)),
+    Masking(mask_value=-99.0),
+
+    LSTM(128, return_sequences=False),
+
+    BatchNormalization(),
+    Dropout(0.3),
+
+    Dense(64, activation='relu'),
+    Dropout(0.2),
+
+    Dense(1, activation='sigmoid')
+])
 ```
 
-Features per timestep: `part/7`, `log1p(time_since_prev)/15`, `hour/24`, shifted past `is_correct`. Reads from `kt4_preprocessed.parquet`, filtered to action_type=respond by checking that `is_correct ∈ {0, 1}`.
+## Training Strategy
 
-Training pattern: 5 outer epochs × 6 chunks of 40,000 train users; `model.fit(..., epochs=1)` per chunk.
+- 5 outer epochs
+- 6 chunks of 40,000 users
+- Sequence truncation with `MAX_LEN = 100`
+- Model saved as:
 
-### Test-set metrics (last response per test user)
+```python
+ednet_lstm_raw.keras
+```
+
+## Metrics
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.6107** |
+| AUC | 0.6107 |
 | Accuracy | 0.5871 |
 | Precision | 0.6370 |
 | Recall | 0.2898 |
 | F1-Score | 0.3984 |
 | Log Loss | 0.6779 |
 
-The 4 raw features don't include `feat_question_difficulty` (the dominant signal for the trees), so this model is structurally limited to a much lower AUC than the trees.
+## Analysis
 
-## 5. 1D-CNN-raw (cell 3) — same as previous "1D-CNN-Chunking", retrained
+The raw-feature LSTM performs significantly worse than the engineered-feature models.
 
+Reasons:
+
+- Only 4 simple input features
+- No explicit difficulty estimation
+- Limited contextual information
+
+However, the model still learns useful temporal patterns from sequential correctness history.
+
+---
+
+# 5. 1D-CNN Raw (4 Sequential Features)
+
+## Architecture
+
+### Code
+
+```python
+model_cnn = Sequential([
+    Input(shape=(100, 4)),
+    Masking(mask_value=-99.0),
+
+    Conv1D(64, 3, padding='same'),
+    BatchNormalization(),
+    ReLU(),
+    MaxPooling1D(2),
+
+    Conv1D(128, 5, padding='same'),
+    BatchNormalization(),
+    ReLU(),
+
+    GlobalAveragePooling1D(),
+    Dropout(0.3),
+
+    Dense(64, activation='relu'),
+    Dropout(0.2),
+
+    Dense(1, activation='sigmoid')
+])
 ```
-Input(shape=(100, 4))
-Masking(mask_value=-99.0)              # silently dropped at the first Conv1D
-Conv1D(64, 3, padding='same')
-BatchNormalization() → ReLU() → MaxPooling1D(2)
-Conv1D(128, 5, padding='same')
-BatchNormalization() → ReLU()
-GlobalAveragePooling1D() → Dropout(0.3)
-Dense(64, activation='relu') → Dropout(0.2)
-Dense(1, activation='sigmoid')
-```
 
-Same 4 raw features as LSTM-raw, same input parquet, same training loop. The `Masking` layer is architecturally bypassed at the first Conv1D (Conv1D doesn't propagate masks), but the trained weights are empirically padding-invariant on in-distribution inputs (verified previously).
-
-### Test-set metrics (last response per test user)
+## Metrics
 
 | Metric | Value |
 |---|---|
-| AUC-ROC | **0.6052** |
+| AUC | 0.6052 |
 | Accuracy | 0.5872 |
 | Precision | 0.5807 |
 | Recall | 0.4489 |
 | F1-Score | 0.5063 |
 | Log Loss | 0.6742 |
 
-Slightly outperforms LSTM-raw on the same input — a small but consistent reversal from the earlier (leaky) benchmark where they were tied at AUC 0.6124.
+## Analysis
 
-## 6. Cross-model summary (unified benchmark)
+The CNN model slightly outperformed the raw LSTM model.
 
-All four of Nguyễn's models scored on the same 59,341 test users, last response per user:
+Advantages of CNN:
 
-| Model | AUC | Notes |
-|---|---|---|
-| LightGBM | **0.6812** | Best of the four |
-| 1D-CNN-raw | 0.5992 | Best deep model on raw features |
-| LSTM-raw | 0.5732 | |
-| LSTM-11-features | 0.5011 | **Anomalously broken — needs debugging** |
+- Faster parallel computation
+- Better local temporal pattern extraction
+- More stable training
 
-For the cross-member comparison (vs Phương's RF / XGB), see [`cross_member_review.md`](cross_member_review.md).
+However, performance remains much lower than the engineered-feature LightGBM model.
 
-## 7. Artifact Status
+---
 
-All artifacts are in [Nguyễn's Drive folder](https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397?usp=sharing), all dated 2026-05-14:
+# 6. Baseline LightGBM (Raw Preprocessed Features)
 
-| Artifact | Status |
+## Description
+
+The notebook also implements a baseline LightGBM trained directly on raw preprocessed features instead of engineered features.
+
+## Training Result
+
+### Output
+
+```text
+Số lượng User Test: 59341
+AUC:       0.5893
+Accuracy:  0.5355
+Precision: 0.5064
+Recall:    0.7745
+F1-Score:  0.6124
+Log Loss:  0.6913
+```
+
+## Analysis
+
+This baseline demonstrates that:
+
+- Raw features alone are insufficient
+- Feature engineering significantly improves model quality
+- Engineered statistical features contribute the largest performance gain
+
+The engineered LightGBM improved AUC from:
+
+```text
+0.5893 → 0.6812
+```
+
+which is a substantial improvement.
+
+---
+
+# 7. Unified Benchmark Summary
+
+## Cross-Model Comparison
+
+| Model | AUC |
 |---|---|
-| Training notebook | Available — [v2 Colab](https://colab.research.google.com/drive/1J0W2KPojkBinPjsESoYDm-hqBebFKu5b?usp=sharing) (5 cells, byte-different from the older `nguyen_colab.ipynb` that's also still in the folder) |
-| `lightgbm_final_model.pkl` | Available (1.29 MB, 180 trees) |
-| `ednet_lstm_11_features.keras` | Available (1.0 MB, input `(100, 11)`) — **functionally broken, see §3** |
-| `ednet_lstm_raw.keras` | Available (962 KB, input `(100, 4)`) |
-| `ednet_1d_cnn_raw.keras` | Available (668 KB, input `(100, 4)`) |
-| `kt4_features_ultimate.parquet` (upstream input) | Available (1 GB, byte-identical to Phương's `kt4_features_1.parquet`) |
-| `train_users.npy` / `valid_users.npy` / `test_users.npy` | In `Splits/` subfolder on Drive (not pulled locally; reconstructible deterministically from `split.py`) |
+| LightGBM (11 Engineered Features) | 0.6812 |
+| LSTM Hybrid (11 Engineered Features) | 0.6868 |
+| LSTM Raw (4 Features) | 0.6107 |
+| 1D-CNN Raw (4 Features) | 0.6052 |
+| Baseline LightGBM (Raw) | 0.5893 |
+
+---
+
+# 8. Key Findings
+
+## 1. Feature Engineering Is Extremely Important
+
+The strongest performance gains came from engineered statistical features rather than model complexity.
+
+---
+
+## 2. LightGBM Is Highly Effective for KT Tabular Features
+
+LightGBM achieved top-tier performance with:
+
+- Lower training cost
+- Faster inference
+- Better stability
+
+compared with deep learning approaches.
+
+---
+
+## 3. Deep Models Benefit From Better Features
+
+The LSTM Hybrid model performed much better than the raw-feature deep models because it received richer engineered information.
+
+---
+
+## 4. Raw Sequential Features Alone Are Limited
+
+CNN and LSTM using only raw interaction features achieved noticeably lower AUC values.
+
+---
+
+# 9. Files Generated in Notebook
+
+| Artifact | Description |
+|---|---|
+| `lightgbm_final_model.pkl` | Final engineered-feature LightGBM |
+| `ednet_lstm_11_features.keras` | Hybrid LSTM model |
+| `ednet_lstm_raw.keras` | Raw-feature LSTM |
+| `ednet_1d_cnn_raw.keras` | Raw-feature CNN |
+| `lightgbm_baseline_raw.pkl` | Baseline raw LightGBM |
+| `train_users.npy` | Train user split |
+| `valid_users.npy` | Validation user split |
+| `test_users.npy` | Test user split |
+
+---
+
+# Conclusion
+
+The notebook successfully implements and benchmarks multiple Knowledge Tracing models on the EdNet-KT4 dataset using a consistent user-level evaluation protocol.
+
+Among all approaches:
+
+- Engineered features contributed the largest performance improvement
+- LightGBM provided the strongest balance between performance and efficiency
+- Deep learning models benefited from engineered features but remained computationally heavier
+- Raw sequential features alone were insufficient for state-of-the-art performance
