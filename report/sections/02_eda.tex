@@ -1,0 +1,109 @@
+\section{Exploratory Data Analysis}
+
+The EDA was structured into four passes, mirroring the natural questions a
+data miner asks when meeting a dataset for the first time: structural,
+distributional, content-metadata, and temporal. Full reports and 26 plots
+live in \texttt{output/eda/}; this section consolidates the most
+load-bearing findings.
+
+\subsection{Structural overview}
+
+Of the 8 columns, three carry the bulk of the missing-value mass —
+\texttt{cursor\_time} (71.6\% missing), \texttt{user\_answer} (78.5\%), and
+\texttt{source}/\texttt{platform} (0.02\% each). Crucially, all of these are
+\textbf{structurally missing}: \texttt{cursor\_time} is only emitted by media
+actions, \texttt{user\_answer} only by respond/erase actions, and
+\texttt{source}/\texttt{platform} are null only on payment-related actions
+(no learning context). Within their applicable subsets they are 100\% present.
+This means \textbf{no imputation is needed} — filling these would inject
+misleading information rather than recover lost signal.
+
+\subsection{Distributions and the long-tail of users}
+
+User activity is extremely right-skewed: the median user has only \textbf{31
+interactions}, while the mean is \textbf{441}. The top 1\% of users contribute
+8{,}300+ interactions each, dragging the mean up by an order of magnitude.
+This has direct consequences for downstream modeling: cold-start users
+(P25 = 22 interactions) carry very little behavioral history, while a
+small power-user cohort dominates any naive aggregate statistic.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.62\linewidth]{user_activity.png}
+\caption{User-level interaction count distribution (log-y). The long tail makes cold-start vs.\ power-user a first-class modeling concern.}
+\end{figure}
+
+Other distributional findings worth flagging:
+
+\begin{itemize}
+\setlength\itemsep{1pt}
+\item \textbf{Sprint mode dominates} (71.3\% of all actions). Students
+  prefer self-directed part-specific practice; the AI's
+  \texttt{adaptive\_offer} accounts for only 6.6\%, and \texttt{tutor} just
+  0.9\%. Most learning is student-driven, not platform-driven.
+\item \textbf{Mobile/web split: 71/29}, stable across nearly every
+  action type. The single exception is \texttt{undo\_erase\_choice} —
+  142{,}092 events on web, \textbf{exactly zero on mobile} — indicating
+  the feature was never shipped on the mobile UI.
+\item \textbf{Audio dominates over video} (~25\% of all actions vs.\ ~3\%),
+  consistent with TOEIC's listening-heavy format.
+\end{itemize}
+
+\subsection{Content metadata: questions, parts, difficulty}
+
+The 13{,}169 questions are heavily concentrated in \textbf{Part 5
+(Incomplete Sentences)}, which holds 43.3\% of the bank — nearly half of
+all questions are grammar/vocabulary fill-in-the-blank. Listening parts
+1--4 are smaller individually but use bundled passages (multiple questions
+per audio clip).
+
+Difficulty was estimated as $1 - \text{accuracy rate}$ across all student
+responses. Across 23.3M matched responses, \textbf{overall accuracy is
+56.87\%}; difficulty is approximately normal around 0.39, with very
+few trivially easy or impossibly hard items.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrr}
+\toprule
+Part & Section & Avg. difficulty & Accuracy \\
+\midrule
+5 & Incomplete Sentences   & \textbf{0.487} & 51.3\% \\
+6 & Text Completion        & 0.404 & 59.6\% \\
+7 & Reading Comprehension  & 0.393 & 60.7\% \\
+4 & Short Talks            & 0.377 & 62.3\% \\
+2 & Question-Response      & 0.369 & 63.1\% \\
+3 & Short Conversations    & 0.364 & 63.7\% \\
+1 & Photo Descriptions     & \textbf{0.326} & 67.4\% \\
+\bottomrule
+\end{tabular}
+\caption{Difficulty by TOEIC part. Part 5 is both the largest and the hardest section.}
+\end{table}
+
+The combination is striking: Part 5 is simultaneously the
+\emph{largest} share of the question bank (43\%) and the \emph{hardest}
+to answer (51.3\% accuracy). Students spend the most time exactly where
+they perform the worst.
+
+\subsection{Temporal patterns}
+
+Daily activity exhibits a clear bimodal pattern across the 461-day
+collection window, with peaks in \textbf{January 2019} and
+\textbf{July--August 2019}. These align with common TOEIC exam
+preparation cycles in Korea — students ramp up usage in the months
+preceding major test sittings. August 2019 is the busiest single month
+at 14M interactions.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\linewidth]{monthly_activity.png}
+\caption{Monthly interaction volume. Bimodal peaks (Jan 2019, Jul--Aug 2019) align with TOEIC exam-prep seasons.}
+\end{figure}
+
+Day-of-week and hour-of-day analyses show \textbf{weekday domination}
+(Tuesday is the busiest day, Sunday the quietest, ~23\% lower) and a
+\textbf{single-peak daily cycle} — there is no secondary evening study
+peak. Daily Active Users averages just 2{,}013 against the 297K total
+user base (~0.7\% DAU/MAU), typical for a freemium edtech product with
+high churn outside exam season.

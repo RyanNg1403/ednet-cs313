@@ -1,0 +1,91 @@
+\section{Feature Engineering}
+
+The feature-engineering module transforms the preprocessed interaction
+log into a row-per-response feature table for the correctness-prediction
+task. Each row corresponds to one student response, enriched with
+\textbf{10 engineered features} grouped into four categories: question
+properties, student mastery, behavioral signals, and engagement/fatigue.
+
+\textbf{Script}: \texttt{feature\_engineering/generate\_features.py}.
+\textbf{Output}: \texttt{kt4\_features.parquet} —
+23{,}308{,}702 rows $\times$ 15 columns ($\approx$484 MB).
+
+\subsection{Leakage prevention}
+
+All cumulative student features are computed using \emph{only} data
+from interactions $1, \ldots, t-1$ when scoring time $t$. The first row
+of each user's history has all cumulative features explicitly set to 0
+(no prior history available). Validation confirms zero users with
+non-zero accuracy at their first response — i.e., the leakage-free
+property holds end-to-end.
+
+\subsection{The ten features}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrll}
+\toprule
+Feature & Corr.\ & Group & Description \\
+\midrule
+\texttt{feat\_question\_difficulty}    & $-0.300$ & Question  & $1 - \text{accuracy}$ for the question, across all students \\
+\texttt{feat\_overall\_accuracy}       & $+0.140$ & Mastery   & Cumulative student accuracy through $t-1$ \\
+\texttt{feat\_reading\_accuracy}       & $+0.112$ & Mastery   & Cumulative accuracy on Parts 5--7 \\
+\texttt{feat\_listening\_accuracy}     & $+0.097$ & Mastery   & Cumulative accuracy on Parts 1--4 \\
+\texttt{feat\_is\_rapid\_guess}        & $-0.052$ & Behavioral& Response faster than P10 (690 ms): likely guess \\
+\texttt{feat\_log\_session\_fatigue}   & $+0.038$ & Engagement& \texttt{log1p} of action count in trailing 1-hour window \\
+\texttt{feat\_answer\_changes}         & $-0.023$ & Behavioral& Prior respond actions on this same question \\
+\texttt{feat\_adaptive\_ratio}         & $+0.022$ & Behavioral& Share of prior attempts coming from \texttt{adaptive\_offer} \\
+\texttt{feat\_lecture\_watches}        & $+0.017$ & Engagement& Cumulative lectures consumed before $t$ \\
+\texttt{feat\_total\_attempts}         & $-0.010$ & Mastery   & Cumulative respond count through $t-1$ \\
+\bottomrule
+\end{tabular}
+\caption{Engineered features, ranked by absolute correlation with the target.}
+\end{table}
+
+\subsection{Group rationale}
+
+\textbf{Question properties.} \texttt{feat\_question\_difficulty} is by
+a wide margin the single most predictive signal ($|\rho| = 0.30$,
+roughly 2$\times$ the next strongest feature). It is an item-level
+property — independent of the current student's history — which means
+no leakage and no temporal staleness.
+
+\textbf{Student mastery.} The three accuracy features capture knowledge
+state at three granularities. The split between
+\texttt{feat\_listening\_accuracy} (Parts 1--4) and
+\texttt{feat\_reading\_accuracy} (Parts 5--7) has a mutual correlation
+of only \textbf{0.27}, confirming that TOEIC's two halves test
+genuinely distinct competencies. \texttt{feat\_total\_attempts}
+provides a confidence-weighting signal — an accuracy of 0.5 from 2
+attempts is very different from 0.5 from 500 attempts.
+
+\textbf{Behavioral signals.} \texttt{feat\_answer\_changes} is unique
+to the KT4-flavored dataset (other EdNet variants don't expose
+re-encounters at this granularity); it captures uncertainty and
+revision behavior. \texttt{feat\_is\_rapid\_guess} flags responses
+under 690 ms (P10 of response time): rapid-guess responses are
+$\sim$9 percentage points less accurate. \texttt{feat\_adaptive\_ratio}
+quantifies the student's reliance on platform recommendations vs.\
+self-direction.
+
+\textbf{Engagement \& fatigue.} \texttt{feat\_log\_session\_fatigue}
+counts \emph{all} actions (not just responses) in the trailing 1-hour
+window before each response, log-transformed to handle the heavy
+right tail. \texttt{feat\_lecture\_watches} captures content
+consumption that may causally improve later accuracy.
+
+\subsection{Validation}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\linewidth]{correlation_matrix.png}
+\caption{Feature correlation matrix. Strongest negative correlation with the target is \texttt{feat\_question\_difficulty} ($-0.30$); the listening/reading accuracy split is informative (mutual $\rho = 0.27$).}
+\end{figure}
+
+Final integrity checks: zero null values across all 15 columns,
+\texttt{feat\_total\_attempts} monotonically increasing per user,
+\texttt{feat\_lecture\_watches} cumulative per user (not lifetime
+constant), and row count exactly matching the count of preprocessed
+respond actions (23{,}308{,}702). The feature table is now ready to
+feed the modeling stage.

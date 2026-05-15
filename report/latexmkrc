@@ -1,0 +1,11 @@
+# latexmk config for the EdNet CS313 report.
+# - Engine: xelatex (Vietnamese cover renders cleanly via fontspec).
+# - PDF lands at report/main.pdf for easy viewing/committing.
+# - Aux files stay in report/build/ (gitignored).
+
+$pdf_mode = 5;                      # 5 = xelatex
+$bibtex_use = 2;
+$out_dir = '.';
+$aux_dir = 'build';
+
+$xelatex = 'xelatex -interaction=nonstopmode -halt-on-error -synctex=1 %O %S';

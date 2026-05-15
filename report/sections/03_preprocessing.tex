@@ -1,0 +1,98 @@
+\section{Preprocessing}
+
+The preprocessing pipeline is structured around the four classical
+data-mining stages from the CS313 curriculum: \textbf{cleaning},
+\textbf{integration}, \textbf{transformation}, and \textbf{reduction}.
+The full implementation lives in \texttt{preprocessing/preprocess.py};
+the input is the consolidated 131M-row interaction parquet, the output
+is \texttt{kt4\_preprocessed.parquet} (131.0M rows, 30 columns, 2.4 GB).
+
+\subsection{Cleaning}
+
+\textbf{Missing values.} As established during EDA, all four columns
+with missing values are structurally missing — present 100\% of the
+time when applicable. No imputation is applied.
+
+\textbf{Duplicates.} 461{,}237 exact duplicate rows (0.35\%) were
+detected and removed. These almost certainly originate from
+client-side retry logic (network blips re-sending the same event).
+Removal is lossless.
+
+\textbf{Consistency.} Programmatic checks confirmed that
+\texttt{user\_answer} values are always in \{a, b, c, d\},
+\texttt{platform} is always in \{mobile, web\} (or null where
+structurally expected), no timestamps are non-positive, and per-user
+event timestamps are monotonically non-decreasing in a 10K-user
+sample. \textbf{Zero violations} found.
+
+\textbf{Outliers (cursor\_time).} Media-action playback positions
+range up to 11.6M ms (~3.2 hours) — clearly accidental
+left-running sessions. Using the IQR rule on the non-null subset
+(Q1 = 0, Q3 = 17{,}650 ms, upper bound = 44{,}125 ms), \textbf{2.68M
+extreme \texttt{cursor\_time} values were set to NaN}. The rows
+themselves are preserved — only the unreliable measurement is
+cleared, so the subsequent min-max normalization sees a meaningful
+0--44s range instead of being crushed by 3-hour outliers.
+
+\subsection{Integration}
+
+We derived \texttt{item\_type} from the prefix of \texttt{item\_id}
+(\texttt{q}/\texttt{b}/\texttt{l}/\texttt{e}/\texttt{p}/\texttt{c})
+and used it to drive joins with the metadata files:
+
+\begin{itemize}
+\setlength\itemsep{1pt}
+\item \textbf{Questions join}: 28{,}142{,}959 question-related rows
+  matched against \texttt{questions.csv} at \textbf{100\%} success;
+  added \texttt{bundle\_id}, \texttt{correct\_answer}, \texttt{part},
+  \texttt{tags}.
+\item \textbf{Lectures join}: 5{,}009{,}098 lecture-related rows
+  matched against \texttt{lectures.csv} at \textbf{100\%} success;
+  added \texttt{lecture\_part}, \texttt{lecture\_tags},
+  \texttt{lecture\_video\_length}.
+\item \textbf{Correctness}: \texttt{is\_correct =
+  (user\_answer == correct\_answer)} computed for every
+  \texttt{respond} action — 23{,}308{,}702 labeled rows in total,
+  with \textbf{56.87\% correct}. This single column is the foundation
+  for every downstream prediction task.
+\item \textbf{Redundancy}: \texttt{explanation\_id} was found to
+  always equal \texttt{bundle\_id} for every question and was therefore
+  not added; \texttt{bundle\_id} and \texttt{item\_type} were kept
+  even though derivable, because they avoid repeated joins downstream.
+\end{itemize}
+
+\subsection{Transformation}
+
+\textbf{Attribute construction}: from \texttt{timestamp} we derived
+\texttt{hour}, \texttt{day\_of\_week}, \texttt{date},
+\texttt{time\_since\_prev} (per-user inter-event gap in ms), and
+\texttt{action\_seq} (per-user 0-indexed action number).
+
+\textbf{Normalization}: \texttt{cursor\_time\_normalized} is
+\texttt{cursor\_time} min-max-scaled to $[0, 1]$ over the cleaned
+0--44s range; \texttt{log\_time\_since\_prev = log(1 +
+time\_since\_prev)} tames the extreme right skew (median 3 s,
+max 446 days) into a distribution amenable to downstream models.
+
+\textbf{Discretization}: \texttt{time\_of\_day} bins \texttt{hour}
+into \{night, morning, afternoon, evening\}; \texttt{is\_weekend}
+binary-encodes Sat/Sun.
+
+\textbf{Encoding}: integer label encoding for the four categorical
+columns (\texttt{action\_type}, \texttt{source}, \texttt{platform},
+\texttt{item\_type}); the original strings are preserved alongside.
+
+\subsection{Reduction (deferred)}
+
+The full preprocessed dataset is saved without reduction so the team
+retains flexibility for downstream tasks. The report documents six
+reduction strategies for downstream use — user sampling, stratified
+sampling, attribute subset selection, aggregation, cold-start
+filtering, and PCA — to be invoked task-by-task rather than baked
+into the canonical preprocessed file.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.78\linewidth]{preprocessing_summary.png}
+\caption{Preprocessing pipeline summary: input (131.4M, 8 cols) $\to$ output (131.0M, 30 cols).}
+\end{figure}

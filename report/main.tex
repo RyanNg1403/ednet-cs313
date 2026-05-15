@@ -1,0 +1,43 @@
+% Build with: latexmk
+% Engine: xelatex (set in latexmkrc)
+% Output: report/main.pdf (and intermediate files in report/build/)
+
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{fontspec}
+\setmainfont{Times New Roman}     % falls back gracefully if absent
+\usepackage{graphicx}
+\graphicspath{{Images/}}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf,skip=4pt}
+\usepackage{amsmath,amssymb}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{10pt}{4pt}
+\titlespacing*{\subsection}{0pt}{6pt}{2pt}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\input{sections/cover}
+
+\newpage
+\tableofcontents
+\thispagestyle{empty}
+
+\newpage
+\setcounter{page}{1}
+
+\input{sections/01_data_introduction}
+\input{sections/02_eda}
+\input{sections/03_preprocessing}
+\input{sections/04_feature_engineering}
+% Sections 5 (Modeling) and 6 (Conclusion + Demo) are intentionally deferred —
+% they will be added once the team supplies fresh modeling results, since the
+% current numbers in the master branch are subject to revision.
+
+\end{document}

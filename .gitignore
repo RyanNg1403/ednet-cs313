@@ -18,3 +18,8 @@ __pycache__/
 # Course materials
 *.pdf
 !Data Pre-processing.pdf
+!report/main.pdf
+
+# LaTeX build artifacts (PDF in report/main.pdf is whitelisted above)
+report/build/
+report/*.synctex.gz

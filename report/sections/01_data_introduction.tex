@@ -1,0 +1,76 @@
+\section{Data Introduction}
+
+This project is built on \textbf{EdNet-KT4}, the largest publicly available
+educational interaction dataset, released by Riiid AI Research and collected
+from \emph{Santa}, a Korean TOEIC preparation platform. KT4 is the most
+detailed of the four EdNet sub-datasets: it logs every fine-grained student
+action — not only question responses, but also page navigation, audio/video
+playback events, payments, and coupon redemptions. This level of detail makes
+it a strong fit for a CS313 data-mining project: the full pipeline (cleaning,
+integration, transformation, reduction, feature engineering, and modeling)
+can be exercised on a real, large-scale, multi-modal log.
+
+\subsection{Scale and provenance}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Property & Value \\
+\midrule
+Total interactions   & 131{,}441{,}538 rows \\
+Total users          & 297{,}915 unique students \\
+Collection period    & 2018-08-27 to 2019-12-01 (461 days) \\
+Source platform      & Santa (Riiid) — TOEIC AI tutor \\
+Raw size             & 6.4 GB across 297{,}915 per-user CSV files \\
+Consolidated parquet & 1.3 GB (snappy-compressed, single file) \\
+\bottomrule
+\end{tabular}
+\caption{EdNet-KT4 at a glance.}
+\end{table}
+
+\subsection{Schema}
+
+The interaction log has 8 columns. Four metadata files (questions, lectures,
+payments, coupons) provide the content side of the dataset.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Column & Type & Description \\
+\midrule
+\texttt{timestamp}    & int64    & Unix ms; shifted from real values for privacy \\
+\texttt{action\_type} & category & 13 types (enter, respond, play\_audio, \dots) \\
+\texttt{item\_id}     & string   & Question / bundle / lecture / payment / coupon \\
+\texttt{cursor\_time} & float64  & Media playback position in ms \\
+\texttt{source}       & category & 8 in-app contexts (sprint, my\_note, adaptive\_offer, \dots) \\
+\texttt{user\_answer} & category & a / b / c / d \\
+\texttt{platform}     & category & mobile / web \\
+\texttt{user\_id}     & int32    & Anonymized student identifier \\
+\bottomrule
+\end{tabular}
+\caption{Schema of the consolidated interaction log.}
+\end{table}
+
+The companion \texttt{questions.csv} (13{,}169 rows) records the question's
+TOEIC \texttt{part} (1--7), correct answer, and skill tags;
+\texttt{lectures.csv} (1{,}021 rows) records the lecture's part, tags, and
+video length. Together they enable the integration step that yields a
+correctness label for every \texttt{respond} action.
+
+\subsection{Why this dataset}
+
+EdNet-KT4 is appealing for our project for three reasons. First, its
+\textbf{raw scale} (131M rows, 6.4 GB) forces us to use efficient
+columnar formats and out-of-core operations from the very first step.
+Second, its \textbf{action diversity} — beyond just answers — gives the
+preprocessing and feature-engineering stages real material to work on
+(time gaps, fatigue proxies, lecture engagement, behavioral signals).
+Third, the dataset has a natural \textbf{prediction target}: given a
+student's history, can we predict whether their next response will be
+correct? This is a well-studied knowledge-tracing problem on which we
+can compare classical (tree-based) and sequence (LSTM, 1D-CNN) models
+on the same evaluation protocol.
