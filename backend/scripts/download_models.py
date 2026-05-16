@@ -33,7 +33,7 @@ MODELS_DIR = BACKEND_DIR / "models"
 DATA_DIR = BACKEND_DIR / "data"
 
 PHUONG_FOLDER = "https://drive.google.com/drive/folders/1-oz4zf1CzahKMH2GSeSEjsfT5JhMDGo_"
-NGUYEN_FOLDER = "https://drive.google.com/drive/folders/1ykpN1phTtHSytuGXW65Sx3FMZCrBu397"
+NGUYEN_FOLDER = "https://drive.google.com/drive/folders/1Pye5N2NWknKhDchmHjkwv8sbtKO0Ewh0?usp=sharing"
 
 # What we want to keep, and where to place it.
 # Source filename → (destination directory, destination filename).
